@@ -29,12 +29,47 @@ partial class ImageNotepad
 
     Control CreateEditorArea()
     {
-        Panel area = new Panel { Dock = DockStyle.Fill };
+        Panel area = new EditorFrame { Dock = DockStyle.Fill };
         lineGutter = new Panel { Dock = DockStyle.Left, Width = 52, BackColor = SystemColors.Control, Visible = false };
         lineGutter.Paint += DrawLineNumbers;
         area.Controls.Add(content);
         area.Controls.Add(lineGutter);
         return area;
+    }
+
+    sealed class EditorFrame : Panel
+    {
+        public EditorFrame()
+        {
+            Padding = new Padding(3);
+            SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (ClientSize.Width < 6 || ClientSize.Height < 6) return;
+
+            Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(106, 125, 146);
+            Color shadow = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(189, 201, 213);
+            Color highlight = SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(240, 245, 250);
+            int right = ClientSize.Width - 1;
+            int bottom = ClientSize.Height - 1;
+
+            using (Pen outer = new Pen(edge))
+            using (Pen dark = new Pen(shadow))
+            using (Pen light = new Pen(highlight))
+            {
+                e.Graphics.DrawRectangle(outer, 0, 0, right, bottom);
+                for (int inset = 1; inset <= 2; inset++)
+                {
+                    e.Graphics.DrawLine(dark, inset, inset, right - inset, inset);
+                    e.Graphics.DrawLine(dark, inset, inset, inset, bottom - inset);
+                    e.Graphics.DrawLine(light, inset, bottom - inset, right - inset, bottom - inset);
+                    e.Graphics.DrawLine(light, right - inset, inset, right - inset, bottom - inset);
+                }
+            }
+        }
     }
 
     void DrawLineNumbers(object sender, PaintEventArgs e)
