@@ -216,7 +216,13 @@ partial class ImageNotepad
     static void WriteNotebook(string path, string data)
     {
         string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        File.WriteAllText(temporary, data);
+        using (FileStream stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(false)))
+        {
+            writer.Write(data);
+            writer.Flush();
+            stream.Flush(true);
+        }
         if (File.Exists(path)) File.Replace(temporary, path, null);
         else File.Move(temporary, path);
     }
@@ -294,9 +300,9 @@ partial class ImageNotepad
         return true;
     }
 
-    void OpenNotebook(string path, bool recovery)
+    bool OpenNotebook(string path, bool recovery)
     {
-        if (!recovery && string.Equals(notebookPath, path, StringComparison.OrdinalIgnoreCase)) return;
+        if (!recovery && string.Equals(notebookPath, path, StringComparison.OrdinalIgnoreCase)) return true;
         try
         {
             XmlDocument xml = new XmlDocument { XmlResolver = null };
@@ -318,7 +324,7 @@ partial class ImageNotepad
             }
             int active;
             if (!int.TryParse(root.GetAttribute("active"), out active)) active = 0;
-            if (!ConfirmCloseNotebook()) return;
+            if (!ConfirmCloseNotebook()) return false;
             foreach (Doc d in strip.Docs) d.Rtb.Dispose();
             strip.Docs.Clear();
             strip.Selected = null;
@@ -340,8 +346,10 @@ partial class ImageNotepad
             savedNotebook = recovery ? null : NotebookData();
             lastRecovery = null;
             recoveryId = Guid.NewGuid().ToString("N");
+            ScheduleCrashSnapshot();
+            return true;
         }
-        catch (Exception ex) { ShowEditorError("Could not open notebook", ex); }
+        catch (Exception ex) { ShowEditorError("Could not open notebook", ex); return false; }
     }
 
     void InitializeAutosave()

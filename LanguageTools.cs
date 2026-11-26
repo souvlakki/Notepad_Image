@@ -143,10 +143,14 @@ partial class ImageNotepad
     {
         LoadLanguageSettings();
         StatusStrip bar = new StatusStrip { SizingGrip = false };
+        wordCountStatus = new ToolStripStatusLabel("Words: 0");
         languageStatus = new ToolStripStatusLabel("Plain text");
         spellingStatus = new ToolStripDropDownButton { Visible = false };
+        bar.Items.Add(wordCountStatus);
         bar.Items.Add(languageStatus);
         bar.Items.Add(spellingStatus);
+        crashStatus = new ToolStripStatusLabel("Crash recovery unavailable") { Visible = false };
+        bar.Items.Add(crashStatus);
         Controls.Add(bar);
         spellingTimer = new Timer { Interval = 450 };
         spellingTimer.Tick += delegate { spellingTimer.Stop(); CheckSpelling(); };
