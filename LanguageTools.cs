@@ -66,6 +66,7 @@ partial class ImageNotepad
                     if (Cur == null || Cur.Language == language) return;
                     Cur.Language = language;
                     Cur.Dirty = true;
+                    Cur.WorkbookDirty = true;
                     RefreshLanguageStatus();
                     Touch();
                 });
@@ -419,7 +420,11 @@ partial class ImageNotepad
             {
                 notebookPath = null;
                 savedNotebook = null;
-                foreach (Doc d in strip.Docs) d.Dirty = true;
+                foreach (Doc d in strip.Docs)
+                {
+                    d.Dirty = true;
+                    d.WorkbookDirty = true;
+                }
             }
             Touch();
         }

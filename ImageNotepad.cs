@@ -18,6 +18,7 @@ class Doc
     public string Name;         // the name shown on the tab (independent of the file name)
     public bool NameCustom;     // true once the user renamed the tab
     public bool Dirty;
+    public bool WorkbookDirty = true;
     public bool Loading;
     public string Language = "";
 }
@@ -202,18 +203,24 @@ class TabStrip : Control
             using (Brush brush = new SolidBrush(accent))
                 g.FillRectangle(brush, r.X + 5, r.Y + 9, 3, r.Height - 17);
 
-        Rectangle tr = new Rectangle(r.X + 12, r.Y, r.Width - 12 - 34, r.Height - 2);
+        int indicators = (d.Dirty ? 1 : 0) + (d.WorkbookDirty ? 1 : 0);
+        Rectangle tr = new Rectangle(r.X + 12, r.Y, r.Width - 12 - 34 - 10 * indicators, r.Height - 2);
         TextRenderer.DrawText(g, d.Name, tabFont, tr, selected ? TextSel : TextDim,
             TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
             TextFormatFlags.NoPrefix | TextFormatFlags.Left | TextFormatFlags.SingleLine);
 
         Rectangle c = CloseRect(new Rectangle(r.X, r.Y, r.Width, r.Height));
-        if (d.Dirty && !hover)
+        int dotX = c.X - 10 * indicators;
+        int dotY = c.Y + (c.Height - 7) / 2;
+        if (d.Dirty)
         {
-            using (Brush db = new SolidBrush(TextDim))
-                g.FillEllipse(db, c.X + 7, c.Y + 7, 6, 6); // unsaved changes dot
+            g.FillEllipse(Brushes.Firebrick, dotX, dotY, 7, 7);
+            dotX += 10;
         }
-        else if (selected || hover)
+        if (d.WorkbookDirty)
+            g.FillEllipse(Brushes.Black, dotX, dotY, 7, 7);
+
+        if (selected || hover)
         {
             if (hover && hoverClose)
                 using (GraphicsPath cp = RoundRect(c, 5))
@@ -237,11 +244,17 @@ class TabStrip : Control
         {
             hoverIndex = i; hoverClose = oc; hoverPlus = hp;
             Invalidate();
-            string t = null;
-            if (i >= 0) { Doc d = Docs[i]; t = d.Name + (d.FilePath != null ? "\n" + d.FilePath : ""); }
-            else if (hp) t = "New tab (Ctrl+N)";
-            if (t != lastTip) { lastTip = t; tip.SetToolTip(this, t); }
         }
+        string t = null;
+        if (i >= 0)
+        {
+            Doc d = Docs[i];
+            t = d.Name + (d.FilePath != null ? "\n" + d.FilePath : "");
+            if (d.Dirty) t += "\nRed dot: unsaved tab edits";
+            if (d.WorkbookDirty) t += "\nBlack dot: current tab is not saved in the workbook";
+        }
+        else if (hp) t = "New tab (Ctrl+N)";
+        if (t != lastTip) { lastTip = t; tip.SetToolTip(this, t); }
         base.OnMouseMove(e);
     }
 
@@ -308,7 +321,7 @@ class TabStrip : Control
 partial class ImageNotepad : Form
 {
     const string AppName = "Image Notepad";
-    const int MaxImageWidth = 600; // wider images are scaled down on insert
+    const int MaxImageDimension = 600;
 
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -476,7 +489,7 @@ partial class ImageNotepad : Form
         mEdit.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mEdit, "Cu&t", Keys.Control | Keys.X, delegate { Cur.Rtb.Cut(); });
         AddItem(mEdit, "&Copy", Keys.Control | Keys.C, delegate { Cur.Rtb.Copy(); });
-        AddItem(mEdit, "&Paste (text or image)", Keys.Control | Keys.V, delegate { Cur.Rtb.Paste(); });
+        AddItem(mEdit, "&Paste (text or image)", Keys.Control | Keys.V, delegate { PasteIntoTab(); });
         AddItem(mEdit, "Select &All", Keys.Control | Keys.A, delegate { Cur.Rtb.SelectAll(); });
 
         // ----- Insert -----
@@ -577,7 +590,7 @@ partial class ImageNotepad : Form
         editMenu.Items.Add(new ToolStripSeparator());
         ToolStripMenuItem miCut = CtxItem(editMenu, "Cut", "Ctrl+X", delegate { Cur.Rtb.Cut(); });
         ToolStripMenuItem miCopy = CtxItem(editMenu, "Copy", "Ctrl+C", delegate { Cur.Rtb.Copy(); });
-        ToolStripMenuItem miPaste = CtxItem(editMenu, "Paste", "Ctrl+V", delegate { Cur.Rtb.Paste(); });
+        ToolStripMenuItem miPaste = CtxItem(editMenu, "Paste", "Ctrl+V", delegate { PasteIntoTab(); });
         ToolStripMenuItem miDelete = CtxItem(editMenu, "Delete", "Del", delegate { if (Cur.Rtb.SelectionLength > 0) Cur.Rtb.SelectedText = ""; });
         editMenu.Items.Add(new ToolStripSeparator());
         ToolStripMenuItem miAll = CtxItem(editMenu, "Select All", "Ctrl+A", delegate { Cur.Rtb.SelectAll(); });
@@ -625,6 +638,9 @@ partial class ImageNotepad : Form
     // ---------------------------------------------------------------
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if ((keyData == (Keys.Control | Keys.V) || keyData == (Keys.Shift | Keys.Insert)) &&
+            Cur != null && Cur.Rtb.Focused)
+        { PasteIntoTab(); return true; }
         if (keyData == (Keys.Control | Keys.Space) && completionEnabled && Cur != null && Cur.Language.Length > 0)
         { ShowCompletion(); return true; }
         if (keyData == (Keys.Control | Keys.Tab) || keyData == (Keys.Control | Keys.PageDown))
@@ -668,7 +684,12 @@ partial class ImageNotepad : Form
         {
             lineGutter.Invalidate();
             ScheduleSpelling();
-            if (!d.Loading && !d.Dirty) { d.Dirty = true; Touch(); }
+            if (!d.Loading && (!d.Dirty || !d.WorkbookDirty))
+            {
+                d.Dirty = true;
+                d.WorkbookDirty = true;
+                Touch();
+            }
         };
         d.Rtb.DragEnter += delegate (object s, DragEventArgs e)
         {
@@ -744,6 +765,7 @@ partial class ImageNotepad : Form
         string n = Prompt(this, "Rename Tab", "Tab name:", d.Name);
         if (n != null && n.Length > 0)
         {
+            if (d.Name != n) d.WorkbookDirty = true;
             d.Name = n;
             d.NameCustom = true;
             Touch();
@@ -833,6 +855,7 @@ partial class ImageNotepad : Form
             bool rich = p.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase);
             if (rich) d.Rtb.LoadFile(p, RichTextBoxStreamType.RichText);
             else d.Rtb.Text = File.ReadAllText(p);
+            d.WorkbookDirty = true;
             d.Language = DetectLanguage(p);
             RefreshLanguageStatus();
             d.FilePath = p;
@@ -899,7 +922,12 @@ partial class ImageNotepad : Form
             }
             else d.Rtb.SaveFile(p, RichTextBoxStreamType.RichText);
             d.FilePath = p;
-            if (!d.NameCustom) d.Name = Path.GetFileNameWithoutExtension(p);
+            if (!d.NameCustom)
+            {
+                string name = Path.GetFileNameWithoutExtension(p);
+                if (d.Name != name) d.WorkbookDirty = true;
+                d.Name = name;
+            }
             d.Dirty = false;
             Touch();
             return true;
@@ -913,11 +941,12 @@ partial class ImageNotepad : Form
 
     void ApplyFormatting(Doc d, Action<RichTextBox> apply)
     {
-        string before = d.Dirty ? null : d.Rtb.Rtf;
+        string before = d.Dirty && d.WorkbookDirty ? null : d.Rtb.Rtf;
         apply(d.Rtb);
         if (before != null && before != d.Rtb.Rtf)
         {
             d.Dirty = true;
+            d.WorkbookDirty = true;
             Touch();
         }
     }
@@ -942,44 +971,71 @@ partial class ImageNotepad : Form
             foreach (string f in d.FileNames) InsertImage(Cur, f);
     }
 
+    static Size ImageInsertSize(int width, int height)
+    {
+        int largest = Math.Max(width, height);
+        if (largest <= MaxImageDimension) return new Size(width, height);
+        return new Size(Math.Max(1, (int)((long)width * MaxImageDimension / largest)),
+            Math.Max(1, (int)((long)height * MaxImageDimension / largest)));
+    }
+
+    void PasteIntoTab()
+    {
+        try
+        {
+            if (!Clipboard.ContainsData(DataFormats.Rtf) && Clipboard.ContainsImage())
+            {
+                using (Image image = Clipboard.GetImage())
+                    if (image != null) InsertImageContent(Cur, image);
+                return;
+            }
+            Cur.Rtb.Paste();
+        }
+        catch (Exception ex) { ShowEditorError("Could not paste from the clipboard", ex); }
+    }
+
     void InsertImage(Doc d, string file)
     {
         try
         {
-            using (Image src = Image.FromFile(file))
-            {
-                int w = Math.Min(src.Width, MaxImageWidth);
-                int h = Math.Max(1, (int)((long)src.Height * w / src.Width));
-                using (Bitmap bmp = new Bitmap(w, h))
-                using (MemoryStream png = new MemoryStream())
-                {
-                    using (Graphics g = Graphics.FromImage(bmp))
-                    {
-                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        g.DrawImage(src, 0, 0, w, h);
-                    }
-                    bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
-
-                    StringBuilder rtf = new StringBuilder(@"{\rtf1\ansi{\pict\pngblip");
-                    rtf.Append(@"\picw").Append(w).Append(@"\pich").Append(h);
-                    rtf.Append(@"\picwgoal").Append(w * 15).Append(@"\pichgoal").Append((long)h * 15);
-                    rtf.Append(' ');
-                    rtf.Append(BitConverter.ToString(png.ToArray()).Replace("-", ""));
-                    rtf.Append("}}");
-                    string pictureRtf = rtf.ToString();
-                    using (RichTextBox probe = new RichTextBox())
-                    {
-                        probe.Rtf = pictureRtf;
-                        if (!ContainsRtfImage(probe.Rtf))
-                            throw new InvalidOperationException("The rich text editor could not load this image.");
-                    }
-                    ApplyFormatting(d, delegate (RichTextBox r) { r.SelectedRtf = pictureRtf; });
-                }
-            }
+            using (Image src = Image.FromFile(file)) InsertImageContent(d, src);
         }
-        catch (Exception ex)
+        catch (Exception ex) { ShowEditorError("Could not insert image", ex); }
+    }
+
+    void InsertImageContent(Doc d, Image src)
+    {
+        Size size = ImageInsertSize(src.Width, src.Height);
+        int w = size.Width, h = size.Height;
+        if ((w != src.Width || h != src.Height) &&
+            MessageBox.Show(this, string.Format("This image is {0} × {1} pixels. The maximum is {2} × {2} pixels.\n\nResize to {3} × {4} pixels and insert it?",
+                src.Width, src.Height, MaxImageDimension, w, h), "Image exceeds size limit",
+                MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+
+        using (Bitmap bmp = new Bitmap(w, h))
+        using (MemoryStream png = new MemoryStream())
         {
-            MessageBox.Show("Could not insert image:\n" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.DrawImage(src, 0, 0, w, h);
+            }
+            bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+
+            StringBuilder rtf = new StringBuilder(@"{\rtf1\ansi{\pict\pngblip");
+            rtf.Append(@"\picw").Append(w).Append(@"\pich").Append(h);
+            rtf.Append(@"\picwgoal").Append(w * 15).Append(@"\pichgoal").Append((long)h * 15);
+            rtf.Append(' ');
+            rtf.Append(BitConverter.ToString(png.ToArray()).Replace("-", ""));
+            rtf.Append("}}");
+            string pictureRtf = rtf.ToString();
+            using (RichTextBox probe = new RichTextBox())
+            {
+                probe.Rtf = pictureRtf;
+                if (!ContainsRtfImage(probe.Rtf))
+                    throw new InvalidOperationException("The rich text editor could not load this image.");
+            }
+            ApplyFormatting(d, delegate (RichTextBox r) { r.SelectedRtf = pictureRtf; });
         }
     }
 
@@ -1178,7 +1234,7 @@ partial class ImageNotepad : Form
             "\u2022  New tab: click the + button, press Ctrl+N, or double-click an empty spot on the tab bar.\n" +
             "\u2022  Switch tabs: click a tab, or press Ctrl+Tab (next) and Ctrl+Shift+Tab (previous).\n" +
             "\u2022  Rename a tab: double-click it, right-click > Rename Tab, or press F2. A tab shows its own name, not the full file name.\n" +
-            "\u2022  Close a tab: click the x, middle-click the tab, or press Ctrl+W. A dot instead of an x means the tab has unsaved changes.\n" +
+            "\u2022  Close a tab: click the x, middle-click the tab, or press Ctrl+W. A red dot means unsaved edits. A black dot means the current tab is not saved in the workbook.\n" +
             "\u2022  Opening files: File > Open (Ctrl+O), dragging a file onto the window, or double-clicking a file in Explorer. Each file opens in a new tab in this same window.\n");
 
         HelpHeading(r, "Saving");
@@ -1196,7 +1252,7 @@ partial class ImageNotepad : Form
         HelpHeading(r, "Pictures");
         HelpText(r,
             "\u2022  Add a picture: Insert > Image from file (Ctrl+Shift+I), paste with Ctrl+V (for example a screenshot taken with Win+Shift+S), or drag an image file into the note.\n" +
-            "\u2022  Pictures wider than 600 pixels are scaled down so notes stay small.\n" +
+            "\u2022  The maximum is 600 × 600 pixels for inserted image files and pasted bitmap images. You can resize an oversized image or cancel.\n" +
             "\u2022  Send to Paint: click a picture so it is highlighted, then choose Insert > Send to Paint (Ctrl+Shift+P) or right-click > Send to Paint. The picture is copied to memory, Paint opens, and the picture is pasted in. If it does not paste by itself, click in Paint and press Ctrl+V.\n");
 
         HelpHeading(r, "Formatting");

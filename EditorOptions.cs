@@ -230,7 +230,11 @@ partial class ImageNotepad
             WriteNotebook(path, data);
             notebookPath = path;
             savedNotebook = data;
-            foreach (Doc d in strip.Docs) d.Dirty = false;
+            foreach (Doc d in strip.Docs)
+            {
+                d.Dirty = false;
+                d.WorkbookDirty = false;
+            }
             Touch();
             return true;
         }
@@ -305,6 +309,7 @@ partial class ImageNotepad
                 d.Rtb.Rtf = tab.Item2;
                 d.Loading = false;
                 d.Dirty = recovery;
+                d.WorkbookDirty = recovery;
             }
             if (strip.Docs.Count == 0) NewTab();
             SelectDoc(strip.Docs[Math.Max(0, Math.Min(active, strip.Docs.Count - 1))]);
