@@ -148,7 +148,6 @@ partial class ImageNotepad
         bar.Items.Add(languageStatus);
         bar.Items.Add(spellingStatus);
         Controls.Add(bar);
-        bar.BringToFront();
         spellingTimer = new Timer { Interval = 450 };
         spellingTimer.Tick += delegate { spellingTimer.Stop(); CheckSpelling(); };
         FormClosed += delegate

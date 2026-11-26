@@ -51,23 +51,11 @@ partial class ImageNotepad
             if (ClientSize.Width < 6 || ClientSize.Height < 6) return;
 
             Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.LightBlue;
-            Color shadow = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(189, 201, 213);
-            Color highlight = SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(240, 245, 250);
-            int right = ClientSize.Width - 1;
-            int bottom = ClientSize.Height - 1;
-
-            using (Pen outer = new Pen(edge))
-            using (Pen dark = new Pen(shadow))
-            using (Pen light = new Pen(highlight))
+            using (Pen pen = new Pen(edge))
             {
-                e.Graphics.DrawRectangle(outer, 0, 0, right, bottom);
-                for (int inset = 1; inset <= 2; inset++)
-                {
-                    e.Graphics.DrawLine(dark, inset, inset, right - inset, inset);
-                    e.Graphics.DrawLine(dark, inset, inset, inset, bottom - inset);
-                    e.Graphics.DrawLine(light, inset, bottom - inset, right - inset, bottom - inset);
-                    e.Graphics.DrawLine(light, right - inset, inset, right - inset, bottom - inset);
-                }
+                for (int inset = 0; inset < Padding.Left; inset++)
+                    e.Graphics.DrawRectangle(pen, inset, inset,
+                        ClientSize.Width - 1 - 2 * inset, ClientSize.Height - 1 - 2 * inset);
             }
         }
     }
