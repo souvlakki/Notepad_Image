@@ -7,6 +7,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Text;
 using System.Windows.Forms;
 
 // One open note (one tab).
@@ -303,6 +304,8 @@ class ImageNotepad : Form
     const int MaxImageWidth = 600; // wider images are scaled down on insert
 
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     TabStrip strip;
@@ -317,6 +320,7 @@ class ImageNotepad : Form
     List<int> paintBefore;
     int paintTicks, paintStage, paintMark;
     IntPtr paintHwnd;
+    uint paintClipboardSequence;
 
     static string PipeName() { return "ImageNotepad_" + Environment.UserName; }
 
@@ -473,9 +477,11 @@ class ImageNotepad : Form
         AddItem(mFmt, "Text &Color...", Keys.None, delegate
         {
             ColorDialog d = new ColorDialog();
-            if (d.ShowDialog() == DialogResult.OK) Cur.Rtb.SelectionColor = d.Color;
+            if (d.ShowDialog() == DialogResult.OK)
+                ApplyFormatting(Cur, delegate (RichTextBox r) { r.SelectionColor = d.Color; });
         });
-        AddItem(mFmt, "&Bullet list (toggle)", Keys.None, delegate { Cur.Rtb.SelectionBullet = !Cur.Rtb.SelectionBullet; });
+        AddItem(mFmt, "&Bullet list (toggle)", Keys.None, delegate
+        { ApplyFormatting(Cur, delegate (RichTextBox r) { r.SelectionBullet = !r.SelectionBullet; }); });
         ToolStripMenuItem wrap = AddItem(mFmt, "&Word Wrap", Keys.None, null);
         wrap.CheckOnClick = true;
         wrap.Checked = true;
@@ -864,11 +870,23 @@ class ImageNotepad : Form
         }
     }
 
+    void ApplyFormatting(Doc d, Action<RichTextBox> apply)
+    {
+        string before = d.Dirty ? null : d.Rtb.Rtf;
+        apply(d.Rtb);
+        if (before != null && before != d.Rtb.Rtf)
+        {
+            d.Dirty = true;
+            Touch();
+        }
+    }
+
     void PickFont()
     {
         FontDialog d = new FontDialog();
         if (Cur.Rtb.SelectionFont != null) d.Font = Cur.Rtb.SelectionFont;
-        if (d.ShowDialog() == DialogResult.OK) Cur.Rtb.SelectionFont = d.Font;
+        if (d.ShowDialog() == DialogResult.OK)
+            ApplyFormatting(Cur, delegate (RichTextBox r) { r.SelectionFont = d.Font; });
     }
 
     // ---------------------------------------------------------------
@@ -887,21 +905,36 @@ class ImageNotepad : Form
     {
         try
         {
-            Bitmap bmp;
             using (Image src = Image.FromFile(file))
             {
-                int w = src.Width, h = src.Height;
-                if (w > MaxImageWidth) { h = (int)((long)h * MaxImageWidth / w); w = MaxImageWidth; }
-                bmp = new Bitmap(w, h);
-                using (Graphics g = Graphics.FromImage(bmp))
+                int w = Math.Min(src.Width, MaxImageWidth);
+                int h = Math.Max(1, (int)((long)src.Height * w / src.Width));
+                using (Bitmap bmp = new Bitmap(w, h))
+                using (MemoryStream png = new MemoryStream())
                 {
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.DrawImage(src, 0, 0, w, h);
+                    using (Graphics g = Graphics.FromImage(bmp))
+                    {
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(src, 0, 0, w, h);
+                    }
+                    bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+
+                    StringBuilder rtf = new StringBuilder(@"{\rtf1\ansi{\pict\pngblip");
+                    rtf.Append(@"\picw").Append(w).Append(@"\pich").Append(h);
+                    rtf.Append(@"\picwgoal").Append(w * 15).Append(@"\pichgoal").Append((long)h * 15);
+                    rtf.Append(' ');
+                    rtf.Append(BitConverter.ToString(png.ToArray()).Replace("-", ""));
+                    rtf.Append("}}");
+                    string pictureRtf = rtf.ToString();
+                    using (RichTextBox probe = new RichTextBox())
+                    {
+                        probe.Rtf = pictureRtf;
+                        if (!ContainsRtfImage(probe.Rtf))
+                            throw new InvalidOperationException("The rich text editor could not load this image.");
+                    }
+                    ApplyFormatting(d, delegate (RichTextBox r) { r.SelectedRtf = pictureRtf; });
                 }
             }
-            Clipboard.SetImage(bmp);
-            d.Rtb.Paste();
-            if (!d.Dirty) { d.Dirty = true; Touch(); }
         }
         catch (Exception ex)
         {
@@ -915,7 +948,11 @@ class ImageNotepad : Form
     static bool SelectionHasImage(RichTextBox r)
     {
         if (r.SelectionLength == 0) return false;
-        string rtf = r.SelectedRtf;
+        return ContainsRtfImage(r.SelectedRtf);
+    }
+
+    static bool ContainsRtfImage(string rtf)
+    {
         return rtf != null && (rtf.Contains("\\pict") || rtf.Contains("\\objdata"));
     }
 
@@ -951,19 +988,22 @@ class ImageNotepad : Form
 
     void SendToPaint()
     {
-        Bitmap bmp = GetSelectedImage(Cur.Rtb);
-        if (bmp == null)
+        using (Bitmap bmp = GetSelectedImage(Cur.Rtb))
         {
-            MessageBox.Show("Click a picture in the note so it is highlighted, then choose Insert > Send to Paint.\n\nIf the picture is selected together with text, select just the picture.",
-                AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
+            if (bmp == null)
+            {
+                MessageBox.Show("Click a picture in the note so it is highlighted, then choose Insert > Send to Paint.\n\nIf the picture is selected together with text, select just the picture.",
+                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!SetClipboardImage(bmp))
+            {
+                MessageBox.Show("Could not place the image in memory (the clipboard is busy). Please try again.",
+                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
         }
-        if (!SetClipboardImage(bmp))
-        {
-            MessageBox.Show("Could not place the image in memory (the clipboard is busy). Please try again.",
-                AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
+        paintClipboardSequence = GetClipboardSequenceNumber();
         StartPasteIntoPaint();
     }
 
@@ -1028,7 +1068,23 @@ class ImageNotepad : Form
             if (paintTicks - paintMark >= 2)
             {
                 paintTimer.Stop();
-                try { SendKeys.Send("^v"); } catch (Exception) { }
+                if (GetClipboardSequenceNumber() != paintClipboardSequence)
+                {
+                    MessageBox.Show("The clipboard changed before Paint was ready. Choose Send to Paint again.",
+                        AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                try
+                {
+                    if (GetForegroundWindow() == paintHwnd)
+                    {
+                        SendKeys.SendWait("^v");
+                        return;
+                    }
+                }
+                catch (Exception) { }
+                MessageBox.Show("Switch to Paint and press Ctrl+V to paste the image.",
+                    AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
     }

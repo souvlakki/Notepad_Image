@@ -1,4 +1,10 @@
 @echo off
-rem Optional: rebuild ImageNotepad.exe from source using the compiler built into Windows
-"%windir%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /target:winexe /out:ImageNotepad.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll ImageNotepad.cs
-pause
+setlocal
+set "compiler=%windir%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if not exist "%compiler%" set "compiler=%windir%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+if not exist "%compiler%" (
+    echo .NET Framework C# compiler was not found.
+    exit /b 1
+)
+"%compiler%" /target:winexe /out:"%~dp0ImageNotepad.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll "%~dp0ImageNotepad.cs"
+exit /b %errorlevel%
