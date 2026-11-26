@@ -19,6 +19,7 @@ class Doc
     public bool NameCustom;     // true once the user renamed the tab
     public bool Dirty;
     public bool Loading;
+    public string Language = "";
 }
 
 // Windows 11 style tab strip: rounded tabs, hover states, close button, "+" button.
@@ -26,6 +27,7 @@ class TabStrip : Control
 {
     public List<Doc> Docs = new List<Doc>();
     public Doc Selected;
+    public Func<string, Color> LanguageColor;
     public event Action<Doc> SelectRequested;
     public event Action<Doc> CloseRequested;
     public event Action<Doc> RenameRequested;
@@ -194,6 +196,11 @@ class TabStrip : Control
             using (Brush b = new SolidBrush(Color.FromArgb(20, 0, 0, 0)))
                 g.FillPath(b, path);
         }
+
+        Color accent = LanguageColor == null ? Color.Empty : LanguageColor(d.Language);
+        if (!accent.IsEmpty)
+            using (Brush brush = new SolidBrush(accent))
+                g.FillRectangle(brush, r.X + 5, r.Y + 9, 3, r.Height - 17);
 
         Rectangle tr = new Rectangle(r.X + 12, r.Y, r.Width - 12 - 34, r.Height - 2);
         TextRenderer.DrawText(g, d.Name, tabFont, tr, selected ? TextSel : TextDim,
@@ -419,7 +426,7 @@ partial class ImageNotepad : Form
         content.Dock = DockStyle.Fill;
         content.BackColor = Color.White;
 
-        strip = new TabStrip();
+        strip = new TabStrip { LanguageColor = GetLanguageColor };
         strip.AllowDrop = true;
         strip.SelectRequested += delegate (Doc d) { SelectDoc(d); };
         strip.CloseRequested += delegate (Doc d) { CloseTab(d); };
@@ -449,6 +456,7 @@ partial class ImageNotepad : Form
         mFile.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mFile, "&Save...", Keys.Control | Keys.S, delegate { ChooseSave(); });
         AddItem(mFile, "Save Notebook As...", Keys.None, delegate { SaveNotebookAs(); });
+        AddItem(mFile, "Move Saved File to Recycle Bin...", Keys.None, delegate { RecycleSavedFile(); });
         AddItem(mFile, "&Restore Autosave...", Keys.None, delegate { RestoreAutosave(); });
         AddItem(mFile, "&Print Tab...", Keys.Control | Keys.P, delegate { PrintTab(); });
         AddItem(mFile, "Print Page Setup...", Keys.None, delegate { PrintPageSetup(); });
@@ -504,6 +512,8 @@ partial class ImageNotepad : Form
         ToolStripMenuItem mHelp = AddTop(menu, "\u2699 &Settings");
         AddItem(mHelp, "&How to Use Image Notepad", Keys.F1, delegate { ShowHelp(this); });
         AddEditorSettings(mHelp);
+        AddLanguageSettings(mHelp);
+        InitializeLanguageTools();
         mHelp.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mHelp, "&About", Keys.None, delegate
         {
@@ -615,6 +625,8 @@ partial class ImageNotepad : Form
     // ---------------------------------------------------------------
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (keyData == (Keys.Control | Keys.Space) && completionEnabled && Cur != null && Cur.Language.Length > 0)
+        { ShowCompletion(); return true; }
         if (keyData == (Keys.Control | Keys.Tab) || keyData == (Keys.Control | Keys.PageDown))
         { CycleTab(1); return true; }
         if (keyData == (Keys.Control | Keys.Shift | Keys.Tab) || keyData == (Keys.Control | Keys.PageUp))
@@ -649,11 +661,13 @@ partial class ImageNotepad : Form
         d.Rtb.WordWrap = wordWrap;
         d.Rtb.Visible = false;
         d.Rtb.ContextMenuStrip = editMenu;   // standard right-click menu
+        d.Rtb.SelectionChanged += delegate { ScheduleSpelling(); };
         d.Rtb.VScroll += delegate { lineGutter.Invalidate(); };
         d.Rtb.Resize += delegate { lineGutter.Invalidate(); };
         d.Rtb.TextChanged += delegate
         {
             lineGutter.Invalidate();
+            ScheduleSpelling();
             if (!d.Loading && !d.Dirty) { d.Dirty = true; Touch(); }
         };
         d.Rtb.DragEnter += delegate (object s, DragEventArgs e)
@@ -684,7 +698,7 @@ partial class ImageNotepad : Form
         strip.Invalidate();
         lineGutter.Invalidate();
         UpdateFormTitle();
-        lineGutter.Invalidate();
+        RefreshLanguageStatus();
         d.Rtb.Focus();
     }
 
@@ -784,7 +798,7 @@ partial class ImageNotepad : Form
     void OpenDialog()
     {
         OpenFileDialog d = new OpenFileDialog();
-        d.Filter = "Notes and notebooks (*.rtf;*.txt;*.inote)|*.rtf;*.txt;*.inote|All files (*.*)|*.*";
+        d.Filter = "Notes and source files|*.rtf;*.txt;*.inote;*.py;*.pyw;*.js;*.jsx;*.mjs;*.cjs;*.ts;*.tsx;*.mts;*.cts;*.java;*.cs|All files (*.*)|*.*";
         d.Multiselect = true;
         if (d.ShowDialog() == DialogResult.OK)
             foreach (string f in d.FileNames) OpenPath(f);
@@ -817,7 +831,10 @@ partial class ImageNotepad : Form
         {
             d.Loading = true;
             bool rich = p.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase);
-            d.Rtb.LoadFile(p, rich ? RichTextBoxStreamType.RichText : RichTextBoxStreamType.PlainText);
+            if (rich) d.Rtb.LoadFile(p, RichTextBoxStreamType.RichText);
+            else d.Rtb.Text = File.ReadAllText(p);
+            d.Language = DetectLanguage(p);
+            RefreshLanguageStatus();
             d.FilePath = p;
             d.Name = Path.GetFileNameWithoutExtension(p); // tab shows the name, not the file name
             d.NameCustom = false;
@@ -835,7 +852,7 @@ partial class ImageNotepad : Form
 
     bool Save(Doc d)
     {
-        if (d.FilePath != null && d.FilePath.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase))
+        if (d.FilePath != null && (d.FilePath.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase) || DetectLanguage(d.FilePath).Length > 0))
             return SaveTo(d, d.FilePath);
         return SaveAs(d);
     }
@@ -845,6 +862,12 @@ partial class ImageNotepad : Form
         SaveFileDialog dlg = new SaveFileDialog();
         dlg.Filter = "Rich Text with images (*.rtf)|*.rtf|Plain text, no images (*.txt)|*.txt";
         dlg.DefaultExt = "rtf";
+        if (d.Language.Length > 0)
+        {
+            string extension = CodeLanguages[d.Language][0].Split(' ')[0];
+            dlg.Filter = d.Language + " source (*" + extension + ")|*" + extension + "|" + dlg.Filter;
+            dlg.DefaultExt = extension.Substring(1);
+        }
         dlg.FileName = SafeFileName(d.Name);
         if (d.FilePath != null) dlg.InitialDirectory = Path.GetDirectoryName(d.FilePath);
         return dlg.ShowDialog() == DialogResult.OK && SaveTo(d, dlg.FileName);
@@ -866,7 +889,9 @@ partial class ImageNotepad : Form
     {
         try
         {
-            if (p.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            if (DetectLanguage(p).Length > 0)
+                File.WriteAllText(p, d.Rtb.Text);
+            else if (p.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
             {
                 if (MessageBox.Show("Saving as .txt discards images and formatting. Continue?", AppName,
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return false;
@@ -1165,6 +1190,8 @@ partial class ImageNotepad : Form
 
         HelpHeading(r, "Editor and output");
         HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. Insert > Table adds a grid. Use Send to for Word, Excel or PowerPoint, or File > Print Tab to print the active note.\n");
+
+        HelpText(r, "Set the current tab language under Settings > Tab Language. Ctrl+Space opens code suggestions when enabled. Click the spelling message for corrections. Set the local recovery path under Settings > Autosave Folder.\n");
 
         HelpHeading(r, "Pictures");
         HelpText(r,

@@ -181,6 +181,7 @@ partial class ImageNotepad
             {
                 writer.WriteStartElement("tab");
                 writer.WriteAttributeString("name", d.Name);
+                if (d.Language.Length > 0) writer.WriteAttributeString("language", d.Language);
                 writer.WriteString(d.Rtb.Rtf);
                 writer.WriteEndElement();
             }
@@ -279,13 +280,13 @@ partial class ImageNotepad
             if (root == null || root.Name != "notebook" || root.GetAttribute("version") != "1")
                 throw new InvalidDataException("This notebook format is unsupported.");
 
-            var tabs = new List<KeyValuePair<string, string>>();
+            var tabs = new List<Tuple<string, string, string>>();
             using (RichTextBox probe = new RichTextBox())
             {
                 foreach (XmlElement tab in root.SelectNodes("tab"))
                 {
                     probe.Rtf = tab.InnerText;
-                    tabs.Add(new KeyValuePair<string, string>(tab.GetAttribute("name"), probe.Rtf));
+                    tabs.Add(Tuple.Create(tab.GetAttribute("name"), probe.Rtf, tab.GetAttribute("language")));
                 }
             }
             int active;
@@ -297,10 +298,11 @@ partial class ImageNotepad
             foreach (var tab in tabs)
             {
                 Doc d = NewTab();
-                d.Name = tab.Key;
+                d.Name = tab.Item1;
+                d.Language = CodeLanguages.ContainsKey(tab.Item3) ? tab.Item3 : "";
                 d.NameCustom = true;
                 d.Loading = true;
-                d.Rtb.Rtf = tab.Value;
+                d.Rtb.Rtf = tab.Item2;
                 d.Loading = false;
                 d.Dirty = recovery;
             }
@@ -337,7 +339,7 @@ partial class ImageNotepad
             if (!NotebookChanged() && !strip.Docs.Exists(d => d.Dirty)) return;
             string data = NotebookData();
             if (data == lastRecovery) return;
-            string folder = Path.Combine(SettingsFolder, "Recovery");
+            string folder = RecoveryFolder;
             Directory.CreateDirectory(folder);
             WriteNotebook(Path.Combine(folder, recoveryId + ".inote"), data);
             lastRecovery = data;
@@ -354,7 +356,7 @@ partial class ImageNotepad
         using (OpenFileDialog dialog = new OpenFileDialog
         {
             Filter = "Recovery notebooks (*.inote)|*.inote",
-            InitialDirectory = Path.Combine(SettingsFolder, "Recovery")
+            InitialDirectory = RecoveryFolder
         })
         {
             if (dialog.ShowDialog(this) == DialogResult.OK) OpenNotebook(dialog.FileName, true);
