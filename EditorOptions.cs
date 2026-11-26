@@ -50,7 +50,7 @@ partial class ImageNotepad
             base.OnPaint(e);
             if (ClientSize.Width < 6 || ClientSize.Height < 6) return;
 
-            Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(106, 125, 146);
+            Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.LightBlue;
             Color shadow = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(189, 201, 213);
             Color highlight = SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(240, 245, 250);
             int right = ClientSize.Width - 1;
