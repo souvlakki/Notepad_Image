@@ -459,27 +459,38 @@ partial class ImageNotepad
 
     void PrintTab()
     {
+        PrintTabs(new[] { Cur }, Cur.Name);
+    }
+
+    void PrintTabs(IList<Doc> tabs, string jobName)
+    {
         try
         {
-            RichTextBox box = Cur.Rtb;
             using (PrintDocument document = new PrintDocument())
             using (PrintDialog dialog = new PrintDialog { Document = document, UseEXDialog = true })
             {
                 document.DefaultPageSettings = (PageSettings)printSettings.Clone();
-                document.DocumentName = Cur.Name;
+                document.DocumentName = jobName;
+                int tabIndex = 0;
                 int next = 0;
                 document.PrintPage += delegate (object sender, PrintPageEventArgs e)
                 {
+                    RichTextBox box = tabs[tabIndex].Rtb;
                     int end = RenderPrintPage(box, e, next);
                     if (end <= next && next < box.TextLength)
                         throw new InvalidOperationException("The selected margins leave too little room to print.");
                     next = end;
-                    e.HasMorePages = next < box.TextLength;
+                    if (next >= box.TextLength)
+                    {
+                        tabIndex++;
+                        next = 0;
+                    }
+                    e.HasMorePages = tabIndex < tabs.Count;
                 };
                 if (dialog.ShowDialog(this) == DialogResult.OK) document.Print();
             }
         }
-        catch (Exception ex) { ShowEditorError("Could not print tab", ex); }
+        catch (Exception ex) { ShowEditorError("Could not print", ex); }
     }
 
     static int RenderPrintPage(RichTextBox box, PrintPageEventArgs page, int start)

@@ -472,7 +472,6 @@ partial class ImageNotepad : Form
         AddItem(mFile, "Move Saved File to Recycle Bin...", Keys.None, delegate { RecycleSavedFile(); });
         AddItem(mFile, "Open Crash Recovery...", Keys.None, delegate { OpenCrashRecovery(); });
         AddItem(mFile, "&Restore Autosave...", Keys.None, delegate { RestoreAutosave(); });
-        AddItem(mFile, "&Print Tab...", Keys.None, delegate { PrintTab(); });
         AddItem(mFile, "Print Page Setup...", Keys.None, delegate { PrintPageSetup(); });
         AddItem(mFile, "Save Individual Tab &As...", Keys.Control | Keys.Shift | Keys.S, delegate { SaveAs(Cur); });
         AddItem(mFile, "Save A&ll Tabs in Notebook", Keys.Control | Keys.Alt | Keys.S, delegate { SaveNotebook(); });
@@ -524,6 +523,7 @@ partial class ImageNotepad : Form
 
         ToolStripMenuItem printing = AddTop(menu, "&Print");
         AddItem(printing, "Print Current &Tab...", Keys.Control | Keys.P, delegate { PrintTab(); });
+        AddItem(printing, "Print &All Tabs...", Keys.None, delegate { PrintTabs(new List<Doc>(strip.Docs), AppName + " - All Tabs"); });
         AddItem(printing, "Page &Setup...", Keys.None, delegate { PrintPageSetup(); });
 
         // ----- Help -----
@@ -1264,7 +1264,7 @@ partial class ImageNotepad : Form
             "\u2022  Save as .rtf to keep the pictures (these files also open in WordPad and Word). Saving as .txt keeps only the text.\n");
 
         HelpHeading(r, "Editor and output");
-        HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. After a crash, the app offers to restore the latest snapshot. The status bar counts words in the active tab. Insert > Table adds a grid. Use Send to for Word, Excel or PowerPoint, or File > Print Tab to print the active note.\n");
+        HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. After a crash, the app offers to restore the latest snapshot. The status bar counts words in the active tab. Insert > Table adds a grid. Use Send to for Word, Excel or PowerPoint, or use the Print menu to print the active tab or all tabs.\n");
 
         HelpText(r, "Set the current tab language under Settings > Tab Language. Ctrl+Space opens code suggestions when enabled. Click the spelling message for corrections. Set the local recovery path under Settings > Autosave Folder.\n");
 
