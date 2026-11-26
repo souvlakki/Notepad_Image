@@ -179,7 +179,7 @@ partial class ImageNotepad
         if (previous)
             while (caret > 0 && (text[caret - 1] == ' ' || text[caret - 1] == '\t')) caret--;
         int start = caret;
-        while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || "_'’".Contains(text[start - 1]) ||
+        while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || "_'’".IndexOf(text[start - 1]) >= 0 ||
             CharUnicodeInfo.GetUnicodeCategory(text[start - 1]) == UnicodeCategory.NonSpacingMark))
             start--;
         Match match = pattern.Match(text, start);
