@@ -298,7 +298,7 @@ class TabStrip : Control
     }
 }
 
-class ImageNotepad : Form
+partial class ImageNotepad : Form
 {
     const string AppName = "Image Notepad";
     const int MaxImageWidth = 600; // wider images are scaled down on insert
@@ -438,7 +438,7 @@ class ImageNotepad : Form
 
         MenuStrip menu = new MenuStrip();
         MainMenuStrip = menu;
-        Controls.Add(content);
+        Controls.Add(CreateEditorArea());
         Controls.Add(strip);
         Controls.Add(menu);
 
@@ -447,9 +447,14 @@ class ImageNotepad : Form
         AddItem(mFile, "&New Tab", Keys.Control | Keys.N, delegate { NewTab(); });
         AddItem(mFile, "&Open... (new tab)", Keys.Control | Keys.O, delegate { OpenDialog(); });
         mFile.DropDownItems.Add(new ToolStripSeparator());
-        AddItem(mFile, "&Save Individual Tab", Keys.Control | Keys.S, delegate { Save(Cur); });
+        AddItem(mFile, "&Save...", Keys.Control | Keys.S, delegate { ChooseSave(); });
+        AddItem(mFile, "Save Notebook As...", Keys.None, delegate { SaveNotebookAs(); });
+        AddItem(mFile, "&Restore Autosave...", Keys.None, delegate { RestoreAutosave(); });
+        AddItem(mFile, "&Print Tab...", Keys.Control | Keys.P, delegate { PrintTab(); });
+        AddItem(mFile, "Print Page Setup...", Keys.None, delegate { PrintPageSetup(); });
         AddItem(mFile, "Save Individual Tab &As...", Keys.Control | Keys.Shift | Keys.S, delegate { SaveAs(Cur); });
-        AddItem(mFile, "Save A&ll Tabs", Keys.Control | Keys.Alt | Keys.S, delegate { SaveAll(); });
+        AddItem(mFile, "Save A&ll Tabs in Notebook", Keys.Control | Keys.Alt | Keys.S, delegate { SaveNotebook(); });
+        AddItem(mFile, "Save Modified Tabs as Separate Files", Keys.None, delegate { SaveAll(); });
         mFile.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mFile, "&Rename Tab...", Keys.F2, delegate { RenameTab(Cur); });
         AddItem(mFile, "&Close Tab", Keys.Control | Keys.W, delegate { CloseTab(Cur); });
@@ -470,6 +475,9 @@ class ImageNotepad : Form
         ToolStripMenuItem mIns = AddTop(menu, "&Insert");
         AddItem(mIns, "&Image from file...", Keys.Control | Keys.Shift | Keys.I, delegate { InsertImageDialog(); });
         AddItem(mIns, "Send to &Paint", Keys.Control | Keys.Shift | Keys.P, delegate { SendToPaint(); });
+
+        AddItem(mIns, "&Table...", Keys.None, delegate { InsertTable(); });
+        AddOfficeMenu(menu);
 
         // ----- Format -----
         ToolStripMenuItem mFmt = AddTop(menu, "F&ormat");
@@ -493,8 +501,9 @@ class ImageNotepad : Form
         // Bold / italic / underline: Ctrl+B / Ctrl+I / Ctrl+U are built in.
 
         // ----- Help -----
-        ToolStripMenuItem mHelp = AddTop(menu, "&Help");
+        ToolStripMenuItem mHelp = AddTop(menu, "\u2699 &Settings");
         AddItem(mHelp, "&How to Use Image Notepad", Keys.F1, delegate { ShowHelp(this); });
+        AddEditorSettings(mHelp);
         mHelp.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mHelp, "&About", Keys.None, delegate
         {
@@ -502,23 +511,19 @@ class ImageNotepad : Form
                 "About " + AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
 
+        LoadEditorSettings();
         BuildContextMenus();
 
         FormClosing += delegate (object s, FormClosingEventArgs e)
         {
-            List<Doc> docs = new List<Doc>(strip.Docs);
-            foreach (Doc d in docs)
-            {
-                if (!d.Dirty) continue;
-                SelectDoc(d);
-                if (!ConfirmDiscard(d)) { e.Cancel = true; return; }
-            }
+            if (!ConfirmCloseNotebook()) e.Cancel = true;
         };
 
         foreach (string f in files)
             if (File.Exists(f)) OpenPath(f);
         if (strip.Docs.Count == 0) NewTab();
         UpdateFormTitle();
+        InitializeAutosave();
 
         if (listen)
         {
@@ -636,7 +641,7 @@ class ImageNotepad : Form
         d.Name = "Untitled " + (++untitledCount);
         d.Rtb = new RichTextBox();
         d.Rtb.Dock = DockStyle.Fill;
-        d.Rtb.Font = new Font("Segoe UI", 11);
+        d.Rtb.Font = new Font("Arial", 12);
         d.Rtb.AcceptsTab = true;
         d.Rtb.AllowDrop = true;
         d.Rtb.HideSelection = false;
@@ -644,8 +649,11 @@ class ImageNotepad : Form
         d.Rtb.WordWrap = wordWrap;
         d.Rtb.Visible = false;
         d.Rtb.ContextMenuStrip = editMenu;   // standard right-click menu
+        d.Rtb.VScroll += delegate { lineGutter.Invalidate(); };
+        d.Rtb.Resize += delegate { lineGutter.Invalidate(); };
         d.Rtb.TextChanged += delegate
         {
+            lineGutter.Invalidate();
             if (!d.Loading && !d.Dirty) { d.Dirty = true; Touch(); }
         };
         d.Rtb.DragEnter += delegate (object s, DragEventArgs e)
@@ -674,13 +682,16 @@ class ImageNotepad : Form
         foreach (Doc x in strip.Docs) x.Rtb.Visible = (x == d);
         strip.EnsureVisible(d);
         strip.Invalidate();
+        lineGutter.Invalidate();
         UpdateFormTitle();
+        lineGutter.Invalidate();
         d.Rtb.Focus();
     }
 
     void Touch()
     {
         strip.Invalidate();
+        lineGutter.Invalidate();
         UpdateFormTitle();
     }
 
@@ -773,7 +784,7 @@ class ImageNotepad : Form
     void OpenDialog()
     {
         OpenFileDialog d = new OpenFileDialog();
-        d.Filter = "Notes (*.rtf;*.txt)|*.rtf;*.txt|All files (*.*)|*.*";
+        d.Filter = "Notes and notebooks (*.rtf;*.txt;*.inote)|*.rtf;*.txt;*.inote|All files (*.*)|*.*";
         d.Multiselect = true;
         if (d.ShowDialog() == DialogResult.OK)
             foreach (string f in d.FileNames) OpenPath(f);
@@ -782,6 +793,11 @@ class ImageNotepad : Form
     // Opens the file in a NEW tab (or switches to it if it is already open).
     void OpenPath(string p)
     {
+        if (p.EndsWith(".inote", StringComparison.OrdinalIgnoreCase))
+        {
+            OpenNotebook(p, false);
+            return;
+        }
         foreach (Doc existing in strip.Docs)
         {
             if (existing.FilePath != null &&
@@ -794,7 +810,7 @@ class ImageNotepad : Form
 
         // Reuse a pristine blank tab instead of leaving it open next to the new one.
         Doc d = Cur;
-        if (d == null || d.FilePath != null || d.Dirty || d.Rtb.TextLength > 0)
+        if (d == null || d.FilePath != null || d.NameCustom || d.Dirty || d.Rtb.TextLength > 0)
             d = NewTab();
 
         try
@@ -1142,10 +1158,13 @@ class ImageNotepad : Form
 
         HelpHeading(r, "Saving");
         HelpText(r,
-            "\u2022  File > Save Individual Tab (Ctrl+S) saves only the tab you are looking at.\n" +
+            "\u2022  File > Save (Ctrl+S) lets you save the current tab or all tabs in one .inote file.\n" +
             "\u2022  File > Save Individual Tab As (Ctrl+Shift+S) saves it under a new file name.\n" +
-            "\u2022  File > Save All Tabs (Ctrl+Alt+S) saves every tab that has unsaved changes.\n" +
+            "\u2022  File > Save All Tabs in Notebook (Ctrl+Alt+S) saves every tab under one notebook name.\n" +
             "\u2022  Save as .rtf to keep the pictures (these files also open in WordPad and Word). Saving as .txt keeps only the text.\n");
+
+        HelpHeading(r, "Editor and output");
+        HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. Insert > Table adds a grid. Use Send to for Word, Excel or PowerPoint, or File > Print Tab to print the active note.\n");
 
         HelpHeading(r, "Pictures");
         HelpText(r,
@@ -1166,7 +1185,7 @@ class ImageNotepad : Form
         HelpHeading(r, "Keyboard shortcuts");
         HelpText(r,
             "Ctrl+N  New tab                    Ctrl+O  Open\n" +
-            "Ctrl+S  Save individual tab         Ctrl+Shift+S  Save as\n" +
+            "Ctrl+S  Choose what to save         Ctrl+Shift+S  Save as\n" +
             "Ctrl+Alt+S  Save all tabs           Ctrl+W  Close tab\n" +
             "F2  Rename tab                      Ctrl+Tab  Next tab\n" +
             "Ctrl+Shift+I  Insert image          Ctrl+Shift+P  Send to Paint\n" +
