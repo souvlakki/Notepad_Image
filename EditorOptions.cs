@@ -354,7 +354,8 @@ partial class ImageNotepad
         {
             string data = NotebookData();
             WriteNotebook(path, data);
-            notebookPath = path;
+            notebookPath = Path.GetFullPath(path);
+            RefreshWorkbookPath();
             savedNotebook = data;
             foreach (Doc d in strip.Docs)
             {
@@ -439,7 +440,8 @@ partial class ImageNotepad
             }
             if (strip.Docs.Count == 0) NewTab();
             SelectDoc(strip.Docs[Math.Max(0, Math.Min(active, strip.Docs.Count - 1))]);
-            notebookPath = recovery ? null : path;
+            notebookPath = recovery ? null : Path.GetFullPath(path);
+            RefreshWorkbookPath();
             savedNotebook = recovery ? null : NotebookData();
             lastRecovery = null;
             recoveryId = Guid.NewGuid().ToString("N");

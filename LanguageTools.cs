@@ -41,7 +41,7 @@ partial class ImageNotepad
     readonly Dictionary<string, Color> languageColors = new Dictionary<string, Color>();
     bool completionEnabled, proseSpelling = true, codeSpelling = true;
     string autosaveFolder;
-    ToolStripStatusLabel languageStatus;
+    ToolStripStatusLabel languageStatus, workbookPathStatus;
     ToolStripDropDownButton spellingStatus;
     Timer spellingTimer;
     IWindowsSpellChecker spellChecker;
@@ -168,12 +168,17 @@ partial class ImageNotepad
     void InitializeLanguageTools()
     {
         LoadLanguageSettings();
-        StatusStrip bar = new StatusStrip { SizingGrip = false };
+        StatusStrip bar = new StatusStrip { SizingGrip = false, ShowItemToolTips = true };
         wordCountStatus = new ToolStripStatusLabel("Words: 0");
         languageStatus = new ToolStripStatusLabel("Plain text");
         spellingStatus = new ToolStripDropDownButton { Visible = false };
         bar.Items.Add(wordCountStatus);
         bar.Items.Add(languageStatus);
+        workbookPathStatus = new ToolStripStatusLabel
+        {
+            Spring = true, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(12, 3, 0, 2), Visible = false
+        };
+        bar.Items.Add(workbookPathStatus);
         bar.Items.Add(spellingStatus);
         crashStatus = new ToolStripStatusLabel("Crash recovery unavailable") { Visible = false };
         bar.Items.Add(crashStatus);
@@ -186,6 +191,14 @@ partial class ImageNotepad
             if (completionMenu != null) completionMenu.Dispose();
             if (spellChecker != null) Marshal.ReleaseComObject(spellChecker);
         };
+    }
+
+    void RefreshWorkbookPath()
+    {
+        if (workbookPathStatus == null) return;
+        workbookPathStatus.Text = notebookPath ?? "";
+        workbookPathStatus.ToolTipText = workbookPathStatus.Text;
+        workbookPathStatus.Visible = notebookPath != null;
     }
 
     void RefreshLanguageStatus()
@@ -457,6 +470,7 @@ partial class ImageNotepad
             else
             {
                 notebookPath = null;
+                RefreshWorkbookPath();
                 savedNotebook = null;
                 foreach (Doc d in strip.Docs)
                 {

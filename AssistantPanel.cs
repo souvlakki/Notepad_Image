@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -59,15 +60,86 @@ partial class ImageNotepad
         }
     }
 
+    sealed class AssistantToggle : Button
+    {
+        public bool Expanded { get; set; }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            using (var letter = new GraphicsPath())
+            {
+                letter.AddString("t", Font.FontFamily, (int)Font.Style,
+                    Font.SizeInPoints * e.Graphics.DpiY / 72f, PointF.Empty, StringFormat.GenericTypographic);
+                float size = Math.Max(4, letter.GetBounds().Height);
+                float left = Padding.Left + 8 + TextRenderer.MeasureText(e.Graphics, Text, Font,
+                    Size.Empty, TextFormatFlags.NoPadding).Width;
+                float top = (ClientSize.Height - size) / 2;
+                float pointY = Expanded ? top + size : top;
+                float baseY = Expanded ? top : top + size;
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var brush = new SolidBrush(ForeColor))
+                    e.Graphics.FillPolygon(brush, new[] { new PointF(left, baseY),
+                        new PointF(left + size, baseY), new PointF(left + size / 2, pointY) });
+            }
+        }
+    }
+
+    sealed class AssistantDivider : Panel
+    {
+        int anchorY;
+        public Action<int> DragBy { get; set; }
+
+        public AssistantDivider()
+        {
+            Cursor = Cursors.SizeNS;
+            BackColor = SystemColors.Control;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            int y = ClientSize.Height / 2;
+            int x = ClientSize.Width / 2;
+            e.Graphics.DrawLine(SystemPens.ControlDark, 0, y, ClientSize.Width, y);
+            e.Graphics.DrawLine(SystemPens.ControlDarkDark, x - 15, y - 1, x + 15, y - 1);
+            e.Graphics.DrawLine(SystemPens.ControlDarkDark, x - 15, y + 1, x + 15, y + 1);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            anchorY = PointToScreen(e.Location).Y;
+            Capture = true;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!Capture || DragBy == null) return;
+            int y = PointToScreen(e.Location).Y;
+            int delta = anchorY - y;
+            anchorY = y;
+            if (delta != 0) DragBy(delta);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left) Capture = false;
+            base.OnMouseUp(e);
+        }
+    }
+
     Control CreateAssistantArea(Control editor)
     {
         const int HeaderHeight = 48;
         var workspace = new Panel { Dock = DockStyle.Fill };
         var panel = new Panel { Dock = DockStyle.Bottom, Height = 300 };
-        var editorDivider = new Splitter { Dock = DockStyle.Bottom, Height = 5, MinSize = 180, MinExtra = 85,
-            BackColor = SystemColors.ControlDark, AccessibleName = "Resize AI Assistant" };
+        var editorDivider = new AssistantDivider { Dock = DockStyle.Bottom, Height = 10,
+            AccessibleName = "Resize AI Assistant" };
 
-        var toggle = new Button { Dock = DockStyle.Top, Height = HeaderHeight, Text = "AI Assistant  ▾",
+        var toggle = new AssistantToggle { Dock = DockStyle.Top, Height = HeaderHeight, Text = "AI Assistant", Expanded = true,
             TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) };
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6) };
         var promptArea = new Panel { Dock = DockStyle.Top, Height = 112 };
@@ -102,13 +174,19 @@ partial class ImageNotepad
 
         bool expanded = true;
         int expandedHeight = panel.Height;
+        Func<int> maximum = () => Math.Max(HeaderHeight, workspace.Height - 85 - editorDivider.Height);
         Action resize = delegate
         {
             if (expanded)
-                panel.Height = Math.Min(expandedHeight, Math.Max(HeaderHeight, workspace.Height - editorDivider.MinExtra - editorDivider.Height));
+                panel.Height = Math.Min(expandedHeight, maximum());
         };
         workspace.SizeChanged += delegate { resize(); };
-        editorDivider.SplitterMoved += delegate { expandedHeight = panel.Height; };
+        editorDivider.DragBy = delegate (int delta)
+        {
+            int max = maximum();
+            expandedHeight = Math.Max(Math.Min(180, max), Math.Min(panel.Height + delta, max));
+            resize();
+        };
         body.Resize += delegate
         {
             int limit = body.ClientSize.Height - body.Padding.Vertical - promptDivider.Height - promptDivider.MinExtra;
@@ -119,7 +197,8 @@ partial class ImageNotepad
             expanded = !expanded;
             body.Visible = expanded;
             editorDivider.Visible = expanded;
-            toggle.Text = expanded ? "AI Assistant  ▾" : "AI Assistant  ▸";
+            toggle.Expanded = expanded;
+            toggle.Invalidate();
             if (expanded) { resize(); prompt.Focus(); }
             else panel.Height = HeaderHeight;
         };
