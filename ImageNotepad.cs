@@ -459,7 +459,7 @@ partial class ImageNotepad : Form
 
         MenuStrip menu = new MenuStrip();
         MainMenuStrip = menu;
-        Controls.Add(CreateEditorArea());
+        Controls.Add(CreateAssistantArea(CreateEditorArea()));
         Controls.Add(strip);
         Controls.Add(menu);
 
