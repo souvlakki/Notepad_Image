@@ -520,6 +520,11 @@ partial class ImageNotepad : Form
             wordWrap = wrap.Checked;
             foreach (Doc d in strip.Docs) d.Rtb.WordWrap = wordWrap;
         };
+        mFmt.DropDownItems.Add(new ToolStripSeparator());
+        ToolStripMenuItem sort = AddItem(mFmt, "&Sort Lines", Keys.None, null);
+        AddItem(sort, "A to Z", Keys.None, delegate { SortLines(false); });
+        AddItem(sort, "Z to A", Keys.None, delegate { SortLines(true); });
+        AddItem(mFmt, "&Filter Lines...", Keys.None, delegate { FilterLines(); });
         // Bold / italic / underline: Ctrl+B / Ctrl+I / Ctrl+U are built in.
 
         ToolStripMenuItem printing = AddTop(menu, "&Print");

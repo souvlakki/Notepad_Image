@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -492,6 +493,181 @@ partial class ImageNotepad
         })
         {
             if (dialog.ShowDialog(this) == DialogResult.OK) OpenNotebook(dialog.FileName, true);
+        }
+    }
+
+    sealed class NoteLine
+    {
+        public int Start;
+        public string Text;
+        public override string ToString() { return Text; }
+    }
+
+    static List<NoteLine> ReadLines(string text)
+    {
+        List<NoteLine> lines = new List<NoteLine>();
+        int start = 0;
+        while (start < text.Length)
+        {
+            int end = text.IndexOf('\n', start);
+            if (end < 0) end = text.Length;
+            int length = end - start;
+            if (length > 0 && text[start + length - 1] == '\r') length--;
+            lines.Add(new NoteLine { Start = start, Text = text.Substring(start, length) });
+            start = end + 1;
+        }
+        return lines;
+    }
+
+    void SortLines(bool descending)
+    {
+        try { SortNoteLines(Cur, descending); }
+        catch (Exception ex) { ShowEditorError("Could not sort lines", ex); }
+    }
+
+    void SortNoteLines(Doc doc, bool descending)
+    {
+        RichTextBox box = doc.Rtb;
+        int cursor = box.SelectionStart;
+        int selectionLength = box.SelectionLength;
+        string text = box.Text;
+        List<NoteLine> allLines = ReadLines(text);
+        var lines = allLines.Where((line, index) => selectionLength == 0 ||
+            (line.Start < cursor + selectionLength &&
+             (index + 1 < allLines.Count ? allLines[index + 1].Start : text.Length) > cursor)).ToList();
+        if (lines.Count < 2) return;
+
+        NoteLine[] sorted = (descending
+            ? lines.OrderByDescending(line => line.Text, StringComparer.CurrentCultureIgnoreCase)
+            : lines.OrderBy(line => line.Text, StringComparer.CurrentCultureIgnoreCase)).ToArray();
+        if (lines.SequenceEqual(sorted)) return;
+
+        int start = lines[0].Start;
+        NoteLine last = lines[lines.Count - 1];
+        int length = last.Start + last.Text.Length - start;
+        try
+        {
+            box.Select(start, length);
+            string original = box.SelectedRtf;
+            if (ContainsRtfImage(original) || Regex.IsMatch(original ?? "", @"\\(?:trowd|intbl|object)\b"))
+                throw new InvalidOperationException("Select text lines outside tables and embedded objects to sort.");
+
+            using (RichTextBox scratch = new RichTextBox { Font = box.Font })
+            {
+                for (int i = 0; i < sorted.Length; i++)
+                {
+                    NoteLine line = sorted[i];
+                    if (i > 0)
+                    {
+                        scratch.Select(scratch.TextLength, 0);
+                        scratch.SelectedText = "\n";
+                    }
+                    if (line.Text.Length == 0) continue;
+                    box.Select(line.Start, line.Text.Length);
+                    scratch.Select(scratch.TextLength, 0);
+                    scratch.SelectedRtf = box.SelectedRtf;
+                }
+                string expected = string.Join("\n", sorted.Select(line => line.Text));
+                if (scratch.Text.Replace("\r\n", "\n") != expected)
+                    throw new InvalidOperationException("The editor could not preserve the selected text while sorting.");
+                box.Select(start, length);
+                scratch.SelectAll();
+                string replacement = scratch.SelectedRtf;
+                string expectedNote = text.Substring(0, start) + expected + text.Substring(start + length);
+                string originalNote = box.Rtf;
+                bool wasDirty = doc.Dirty, workbookWasDirty = doc.WorkbookDirty;
+                ApplyFormatting(doc, editor =>
+                {
+                    editor.SelectedRtf = replacement;
+                    // Some RichEdit implementations insert a synthetic final paragraph.
+                    int boundary = start + expected.Length;
+                    if (editor.Text == expectedNote.Insert(boundary, "\n"))
+                    {
+                        editor.Select(boundary, 1);
+                        editor.SelectedText = "";
+                    }
+                    if (editor.Text.Replace("\r\n", "\n") != expectedNote.Replace("\r\n", "\n"))
+                    {
+                        editor.Rtf = originalNote;
+                        doc.Dirty = wasDirty;
+                        doc.WorkbookDirty = workbookWasDirty;
+                        Touch();
+                        throw new InvalidOperationException("The editor could not preserve the original line breaks.");
+                    }
+                });
+            }
+        }
+        finally { box.Select(cursor, selectionLength); }
+    }
+
+    static bool MatchesFilter(string line, string query, StringComparison comparison)
+    {
+        return line.IndexOf(query, comparison) >= 0;
+    }
+
+    void FilterLines()
+    {
+        RichTextBox box = Cur.Rtb;
+        List<NoteLine> lines = ReadLines(box.Text);
+        using (Form dialog = new Form
+        {
+            Text = "Filter Lines", StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(580, 360), MinimumSize = new Size(420, 250), ShowInTaskbar = false
+        })
+        {
+            var query = new TextBox { Dock = DockStyle.Fill, AccessibleName = "Text to find" };
+            var matchCase = new CheckBox { Text = "Match case", AutoSize = true };
+            var clear = new Button { Text = "Clear", AutoSize = true };
+            var results = new ListBox { Dock = DockStyle.Fill, HorizontalScrollbar = true, AccessibleName = "Matching lines" };
+            var summary = new Label { AutoSize = true, Anchor = AnchorStyles.Left };
+            var jump = new Button { Text = "Go to line", AutoSize = true };
+            var close = new Button { Text = "Close", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4 };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            top.Controls.Add(new Label { Text = "Contains", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            top.Controls.Add(query, 1, 0);
+            top.Controls.Add(matchCase, 2, 0);
+            top.Controls.Add(clear, 3, 0);
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
+            bottom.Controls.Add(jump);
+            bottom.Controls.Add(close);
+            bottom.Controls.Add(summary);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), RowCount = 3 };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(top, 0, 0);
+            layout.Controls.Add(results, 0, 1);
+            layout.Controls.Add(bottom, 0, 2);
+            dialog.Controls.Add(layout);
+            dialog.AcceptButton = jump;
+            dialog.CancelButton = close;
+            Action refresh = delegate
+            {
+                var comparison = matchCase.Checked ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase;
+                results.BeginUpdate();
+                try
+                {
+                    results.Items.Clear();
+                    results.Items.AddRange(lines.Where(line => MatchesFilter(line.Text, query.Text, comparison)).ToArray());
+                }
+                finally { results.EndUpdate(); }
+                if (results.Items.Count > 0) results.SelectedIndex = 0;
+                jump.Enabled = results.SelectedItem != null;
+                summary.Text = results.Items.Count + " of " + lines.Count + " lines";
+            };
+            query.TextChanged += delegate { refresh(); };
+            matchCase.CheckedChanged += delegate { refresh(); };
+            clear.Click += delegate { query.Clear(); query.Focus(); };
+            jump.Click += delegate { if (results.SelectedItem != null) dialog.DialogResult = DialogResult.OK; };
+            results.DoubleClick += delegate { jump.PerformClick(); };
+            refresh();
+            if (dialog.ShowDialog(this) != DialogResult.OK || box.IsDisposed) return;
+            var selected = (NoteLine)results.SelectedItem;
+            box.Focus();
+            box.Select(selected.Start, selected.Text.Length);
+            box.ScrollToCaret();
         }
     }
 
