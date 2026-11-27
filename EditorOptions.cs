@@ -14,7 +14,14 @@ using System.Xml;
 partial class ImageNotepad
 {
     Panel lineGutter, rightGutter;
-    ToolStripMenuItem lineNumbersItem;
+    ToolStripMenuItem lineNumbersItem, editorLinesItem;
+    Color lineColor = Color.SteelBlue;
+    int lineOpacity = 25;
+
+    Color EditorLineColor
+    {
+        get { return Color.FromArgb(editorLinesItem.Checked ? (lineOpacity * 255 + 50) / 100 : 0, lineColor); }
+    }
     Padding editorMargins;
     int autosaveMinutes;
     System.Windows.Forms.Timer autosaveTimer;
@@ -103,6 +110,53 @@ partial class ImageNotepad
         }
     }
 
+    sealed class RuledEditor : RichTextBox
+    {
+        public Color LineColor { get; set; }
+
+        [DllImport("user32.dll")]
+        static extern bool GetUpdateRect(IntPtr window, out PrintRect rectangle, bool erase);
+
+        public RuledEditor()
+        {
+            VScroll += delegate { if (LineColor.A != 0) Invalidate(); };
+            TextChanged += delegate { if (LineColor.A != 0) Invalidate(); };
+        }
+
+        protected override void WndProc(ref Message message)
+        {
+            const int Paint = 0x000F;
+            PrintRect update = new PrintRect();
+            bool draw = message.Msg == Paint && LineColor.A != 0 &&
+                Environment.OSVersion.Platform == PlatformID.Win32NT &&
+                GetUpdateRect(Handle, out update, false);
+            base.WndProc(ref message);
+            if (!draw || !IsHandleCreated) return;
+            using (Graphics graphics = Graphics.FromHwnd(Handle))
+            {
+                graphics.SetClip(Rectangle.FromLTRB(update.Left, update.Top, update.Right, update.Bottom));
+                int firstChar = GetCharIndexFromPosition(Point.Empty);
+                int lineStart = GetFirstCharIndexFromLine(GetLineFromCharIndex(firstChar));
+                int top = GetPositionFromCharIndex(Math.Max(0, lineStart)).Y;
+                int spacing = Math.Max(1, Font.Height);
+                int firstRule = ((top - 1) % spacing + spacing) % spacing;
+                using (Pen pen = new Pen(LineColor))
+                    for (int y = firstRule; y < ClientSize.Height; y += spacing)
+                        graphics.DrawLine(pen, 0, y, ClientSize.Width - 1, y);
+            }
+        }
+    }
+
+    void RefreshEditorLines()
+    {
+        foreach (Doc d in strip.Docs)
+        {
+            ((RuledEditor)d.Rtb).LineColor = EditorLineColor;
+            d.Rtb.Invalidate();
+        }
+        SaveEditorSettings();
+    }
+
     void AddEditorSettings(ToolStripMenuItem settings)
     {
         AddItem(settings, "Editor &Margins...", Keys.None, delegate
@@ -123,6 +177,25 @@ partial class ImageNotepad
             SetLineGuttersVisible(lineNumbersItem.Checked);
             SaveEditorSettings();
         };
+        ToolStripMenuItem lines = AddItem(settings, "Editor &Lines", Keys.None, null);
+        editorLinesItem = AddItem(lines, "&Show Lines", Keys.None, delegate { RefreshEditorLines(); });
+        editorLinesItem.CheckOnClick = true;
+        AddItem(lines, "Line &Color...", Keys.None, delegate
+        {
+            using (ColorDialog dialog = new ColorDialog { Color = lineColor, FullOpen = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                lineColor = dialog.Color;
+                RefreshEditorLines();
+            }
+        });
+        AddItem(lines, "Line &Opacity...", Keys.None, delegate
+        {
+            int[] values = ReadNumbers("Editor line opacity", new[] { "Opacity (%)" }, new[] { lineOpacity }, 0, 100);
+            if (values == null) return;
+            lineOpacity = values[0];
+            RefreshEditorLines();
+        });
         AddItem(settings, "&Autosave...", Keys.None, delegate
         {
             int[] values = ReadNumbers("Local recovery autosave", new[] { "Minutes (0 = off)" },
@@ -166,7 +239,7 @@ partial class ImageNotepad
         try
         {
             string[] settings = File.ReadAllLines(Path.Combine(SettingsFolder, "settings.txt"));
-            if (settings.Length != 6) return;
+            if (settings.Length != 6 && settings.Length != 9) return;
             int[] values = Array.ConvertAll(settings, x => int.Parse(x, CultureInfo.InvariantCulture));
             for (int i = 0; i < 4; i++) values[i] = Math.Max(0, Math.Min(120, values[i]));
             editorMargins = new Padding(values[0], values[1], values[2], values[3]);
@@ -174,6 +247,12 @@ partial class ImageNotepad
             lineNumbersItem.Checked = values[4] != 0;
             SetLineGuttersVisible(lineNumbersItem.Checked);
             autosaveMinutes = Math.Max(0, Math.Min(60, values[5]));
+            if (values.Length == 9)
+            {
+                editorLinesItem.Checked = values[6] != 0;
+                lineColor = Color.FromArgb(values[7]);
+                lineOpacity = Math.Max(0, Math.Min(100, values[8]));
+            }
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
@@ -187,7 +266,8 @@ partial class ImageNotepad
         {
             Directory.CreateDirectory(SettingsFolder);
             int[] values = { editorMargins.Left, editorMargins.Top, editorMargins.Right, editorMargins.Bottom,
-                lineNumbersItem.Checked ? 1 : 0, autosaveMinutes };
+                lineNumbersItem.Checked ? 1 : 0, autosaveMinutes, editorLinesItem.Checked ? 1 : 0,
+                lineColor.ToArgb(), lineOpacity };
             File.WriteAllLines(Path.Combine(SettingsFolder, "settings.txt"),
                 Array.ConvertAll(values, value => value.ToString(CultureInfo.InvariantCulture)));
         }
@@ -415,12 +495,22 @@ partial class ImageNotepad
         }
     }
 
+    void InsertColumns()
+    {
+        int[] size = ReadNumbers("Insert columns", new[] { "Columns" }, new[] { 2 }, 2, 20);
+        if (size != null) InsertGrid(1, size[0], "columns");
+    }
+
     void InsertTable()
     {
         int[] size = ReadNumbers("Insert table", new[] { "Rows", "Columns" }, new[] { 3, 3 }, 1, 20);
-        if (size == null) return;
-        try { ApplyFormatting(Cur, box => box.SelectedRtf = TableRtf(size[0], size[1])); }
-        catch (Exception ex) { ShowEditorError("Could not insert table", ex); }
+        if (size != null) InsertGrid(size[0], size[1], "table");
+    }
+
+    void InsertGrid(int rows, int columns, string label)
+    {
+        try { ApplyFormatting(Cur, box => box.SelectedRtf = TableRtf(rows, columns)); }
+        catch (Exception ex) { ShowEditorError("Could not insert " + label, ex); }
     }
 
     static string TableRtf(int rows, int columns)

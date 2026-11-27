@@ -497,6 +497,7 @@ partial class ImageNotepad : Form
         AddItem(mIns, "&Image from file...", Keys.Control | Keys.Shift | Keys.I, delegate { InsertImageDialog(); });
         AddItem(mIns, "Send to &Paint", Keys.Control | Keys.Shift | Keys.P, delegate { SendToPaint(); });
 
+        AddItem(mIns, "C&olumns...", Keys.None, delegate { InsertColumns(); });
         AddItem(mIns, "&Table...", Keys.None, delegate { InsertTable(); });
         AddOfficeMenu(menu);
 
@@ -679,7 +680,7 @@ partial class ImageNotepad : Form
     {
         Doc d = new Doc();
         d.Name = "Untitled " + (++untitledCount);
-        d.Rtb = new RichTextBox();
+        d.Rtb = new RuledEditor { LineColor = EditorLineColor };
         d.Rtb.Dock = DockStyle.Fill;
         d.Rtb.Font = new Font("Arial", 12);
         d.Rtb.AcceptsTab = true;
@@ -1264,7 +1265,7 @@ partial class ImageNotepad : Form
             "\u2022  Save as .rtf to keep the pictures (these files also open in WordPad and Word). Saving as .txt keeps only the text.\n");
 
         HelpHeading(r, "Editor and output");
-        HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. After a crash, the app offers to restore the latest snapshot. The status bar counts words in the active tab. Insert > Table adds a grid. Use Send to for Word, Excel or PowerPoint, or use the Print menu to print the active tab or all tabs.\n");
+        HelpText(r, "Settings has margins, line numbers, autosave and this help. File > Restore Autosave opens local recovery copies. After a crash, the app offers to restore the latest snapshot. The status bar counts words in the active tab. Insert > Columns adds side-by-side cells, and Insert > Table adds a grid. Settings > Editor Lines controls the display of ruled lines. Use Send to for Word, Excel or PowerPoint, or use the Print menu to print the active tab or all tabs.\n");
 
         HelpText(r, "Set the current tab language under Settings > Tab Language. Ctrl+Space opens code suggestions when enabled. Click the spelling message for corrections. Set the local recovery path under Settings > Autosave Folder.\n");
 
