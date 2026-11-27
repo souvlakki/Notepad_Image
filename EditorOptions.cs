@@ -32,12 +32,14 @@ partial class ImageNotepad
     {
         Panel area = new EditorFrame { Dock = DockStyle.Fill };
         lineGutter = new Panel { Dock = DockStyle.Left, Width = 52, BackColor = SystemColors.Control, Visible = false };
+        Font numberFont = new Font("Arial", 12f);
+        lineGutter.Font = numberFont;
+        lineGutter.Disposed += delegate { numberFont.Dispose(); };
         lineGutter.Paint += DrawLineNumbers;
         rightGutter = new Panel
         {
             Dock = DockStyle.Right, Width = lineGutter.Width, BackColor = lineGutter.BackColor, Visible = false
         };
-        lineGutter.VisibleChanged += delegate { rightGutter.Visible = lineGutter.Visible; };
         area.Controls.Add(content);
         area.Controls.Add(lineGutter);
         area.Controls.Add(rightGutter);
@@ -67,11 +69,18 @@ partial class ImageNotepad
         }
     }
 
+    void SetLineGuttersVisible(bool visible)
+    {
+        lineGutter.Visible = visible;
+        rightGutter.Visible = visible;
+    }
+
     void DrawLineNumbers(object sender, PaintEventArgs e)
     {
         if (Cur == null) return;
         RichTextBox box = Cur.Rtb;
         string note = box.Text;
+        int numberHeight = lineGutter.Font.Height;
         int top = Math.Min(note.Length, Math.Max(0, box.GetCharIndexFromPosition(Point.Empty)));
         int start = top == 0 ? 0 : note.LastIndexOf('\n', top - 1) + 1;
         int number = 1;
@@ -83,9 +92,9 @@ partial class ImageNotepad
             Point pos = box.GetPositionFromCharIndex(start);
             int y = pos.Y + content.Padding.Top;
             if (y >= lineGutter.Height) break;
-            if (y + box.Font.Height > 0)
+            if (y + numberHeight > 0)
                 TextRenderer.DrawText(e.Graphics, number.ToString(), lineGutter.Font,
-                    new Rectangle(0, y, lineGutter.Width - 6, box.Font.Height),
+                    new Rectangle(0, y, lineGutter.Width - 6, numberHeight),
                     SystemColors.GrayText, TextFormatFlags.Right | TextFormatFlags.NoPadding);
             int next = note.IndexOf('\n', start);
             if (next < 0) break;
@@ -111,7 +120,7 @@ partial class ImageNotepad
         lineNumbersItem.CheckOnClick = true;
         lineNumbersItem.Click += delegate
         {
-            lineGutter.Visible = lineNumbersItem.Checked;
+            SetLineGuttersVisible(lineNumbersItem.Checked);
             SaveEditorSettings();
         };
         AddItem(settings, "&Autosave...", Keys.None, delegate
@@ -163,7 +172,7 @@ partial class ImageNotepad
             editorMargins = new Padding(values[0], values[1], values[2], values[3]);
             content.Padding = editorMargins;
             lineNumbersItem.Checked = values[4] != 0;
-            lineGutter.Visible = lineNumbersItem.Checked;
+            SetLineGuttersVisible(lineNumbersItem.Checked);
             autosaveMinutes = Math.Max(0, Math.Min(60, values[5]));
         }
         catch (IOException) { }
