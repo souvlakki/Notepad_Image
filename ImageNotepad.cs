@@ -538,6 +538,7 @@ partial class ImageNotepad : Form
         AddItem(mHelp, "&How to Use Image Notepad", Keys.F1, delegate { ShowHelp(this); });
         AddEditorSettings(mHelp);
         AddLanguageSettings(mHelp);
+        AddItem(mHelp, "&AI Assistant...", Keys.None, delegate { ShowAssistantSettings(); });
         InitializeLanguageTools();
         mHelp.DropDownItems.Add(new ToolStripSeparator());
         AddItem(mHelp, "&About", Keys.None, delegate

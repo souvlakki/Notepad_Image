@@ -314,6 +314,8 @@ partial class ImageNotepad
             XmlElement root = settings.DocumentElement;
             if (root == null) return;
             completionEnabled = root.GetAttribute("completion") == "true";
+            string model = root.GetAttribute("assistantModel").Trim();
+            if (model.Length > 0) assistantModel = model;
             proseSpelling = root.GetAttribute("spelling") != "false";
             codeSpelling = root.GetAttribute("codeSpelling") != "false";
             string folder = root.GetAttribute("autosaveFolder");
@@ -340,6 +342,7 @@ partial class ImageNotepad
             {
                 writer.WriteStartElement("settings");
                 writer.WriteAttributeString("completion", XmlConvert.ToString(completionEnabled));
+                writer.WriteAttributeString("assistantModel", assistantModel);
                 writer.WriteAttributeString("spelling", XmlConvert.ToString(proseSpelling));
                 writer.WriteAttributeString("codeSpelling", XmlConvert.ToString(codeSpelling));
                 writer.WriteAttributeString("autosaveFolder", autosaveFolder);

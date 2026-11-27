@@ -16,34 +16,67 @@ partial class ImageNotepad
     const string AssistantDefaultModel = "gpt-4.1-mini";
     static readonly Uri AssistantEndpoint = new Uri("https://api.openai.com/v1/responses");
 
+    string assistantModel = AssistantDefaultModel;
+    string assistantSessionKey = "";
+
+    void ShowAssistantSettings()
+    {
+        using (var dialog = new Form
+        {
+            Text = "AI Assistant Settings", ClientSize = new Size(420, 162),
+            FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false
+        })
+        {
+            var model = new TextBox { Left = 135, Top = 13, Width = 270, Text = assistantModel,
+                AccessibleName = "OpenAI model", MaxLength = 120 };
+            var key = new TextBox { Left = 135, Top = 45, Width = 270, Text = assistantSessionKey,
+                UseSystemPasswordChar = true, MaxLength = 512, AccessibleName = "OpenAI API key for this session" };
+            var ok = new Button { Text = "OK", Left = 245, Top = 124, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", Left = 330, Top = 124, DialogResult = DialogResult.Cancel };
+            dialog.Controls.Add(new Label { Text = "OpenAI model", Left = 12, Top = 16, AutoSize = true });
+            dialog.Controls.Add(new Label { Text = "Session API key", Left = 12, Top = 48, AutoSize = true });
+            dialog.Controls.Add(new Label { Text = "Leave the key blank to use OPENAI_API_KEY.\nKeys entered here are kept for this session only.",
+                Left = 12, Top = 78, AutoSize = true });
+            dialog.Controls.Add(model);
+            dialog.Controls.Add(key);
+            dialog.Controls.Add(ok);
+            dialog.Controls.Add(cancel);
+            dialog.AcceptButton = ok;
+            dialog.CancelButton = cancel;
+            ok.Click += delegate
+            {
+                if (!string.IsNullOrWhiteSpace(model.Text)) return;
+                dialog.DialogResult = DialogResult.None;
+                model.Focus();
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            assistantSessionKey = key.Text.Trim();
+            string name = model.Text.Trim();
+            if (name == assistantModel) return;
+            assistantModel = name;
+            SaveLanguageSettings();
+        }
+    }
+
     Control CreateAssistantArea(Control editor)
     {
+        const int HeaderHeight = 48;
         var workspace = new Panel { Dock = DockStyle.Fill };
-        var panel = new Panel { Dock = DockStyle.Bottom, Height = 30, Padding = new Padding(0, 1, 0, 0) };
-        panel.Paint += delegate (object sender, PaintEventArgs e)
-        {
-            e.Graphics.DrawLine(SystemPens.ControlDark, 0, 0, panel.ClientSize.Width, 0);
-        };
+        var panel = new Panel { Dock = DockStyle.Bottom, Height = 300 };
+        var editorDivider = new Splitter { Dock = DockStyle.Bottom, Height = 5, MinSize = 180, MinExtra = 85,
+            BackColor = SystemColors.ControlDark, AccessibleName = "Resize AI Assistant" };
 
-        var toggle = new Button { Dock = DockStyle.Top, Height = 29, Text = "AI Assistant  ▸", TextAlign = ContentAlignment.MiddleLeft };
-        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(6), Visible = false };
-        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        body.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));
-        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        var options = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
-        var model = new TextBox { Text = AssistantDefaultModel, Width = 130, AccessibleName = "OpenAI model" };
-        var key = new TextBox { Width = 165, UseSystemPasswordChar = true, MaxLength = 512, AccessibleName = "OpenAI API key for this session" };
-        options.Controls.Add(new Label { Text = "OpenAI model", AutoSize = true, Margin = new Padding(0, 6, 4, 0) });
-        options.Controls.Add(model);
-        options.Controls.Add(new Label { Text = "Session API key", AutoSize = true, Margin = new Padding(12, 6, 4, 0) });
-        options.Controls.Add(key);
+        var toggle = new Button { Dock = DockStyle.Top, Height = HeaderHeight, Text = "AI Assistant  ▾",
+            TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) };
+        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6) };
+        var promptArea = new Panel { Dock = DockStyle.Top, Height = 112 };
+        var promptDivider = new Splitter { Dock = DockStyle.Top, Height = 5, MinSize = 76, MinExtra = 30,
+            BackColor = SystemColors.ControlDark, AccessibleName = "Resize prompt and response" };
 
         var prompt = new TextBox { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Vertical,
             MaxLength = 50000, AccessibleName = "Prompt for the AI Assistant" };
-        var controls = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true };
+        var controls = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 30, WrapContents = false };
         var send = new Button { Text = "Send", AutoSize = true };
         var cancel = new Button { Text = "Cancel", AutoSize = true, Enabled = false };
         var includeSelection = new CheckBox { Text = "Include selected text", AutoSize = true, Margin = new Padding(8, 7, 4, 0) };
@@ -52,36 +85,49 @@ partial class ImageNotepad
         controls.Controls.Add(cancel);
         controls.Controls.Add(includeSelection);
         controls.Controls.Add(status);
+        promptArea.Controls.Add(prompt);
+        promptArea.Controls.Add(controls);
+        promptArea.Controls.Add(new Label { Text = "Prompt", Dock = DockStyle.Top, Height = 18 });
 
         var answer = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
             AccessibleName = "AI Assistant answer" };
-        body.Controls.Add(options, 0, 0);
-        body.Controls.Add(new Label { Text = "Prompt", AutoSize = true }, 0, 1);
-        body.Controls.Add(prompt, 0, 2);
-        body.Controls.Add(controls, 0, 3);
-        body.Controls.Add(answer, 0, 4);
+        body.Controls.Add(answer);
+        body.Controls.Add(promptDivider);
+        body.Controls.Add(promptArea);
         panel.Controls.Add(body);
         panel.Controls.Add(toggle);
         workspace.Controls.Add(editor);
+        workspace.Controls.Add(editorDivider);
         workspace.Controls.Add(panel);
 
-        bool expanded = false;
+        bool expanded = true;
+        int expandedHeight = panel.Height;
         Action resize = delegate
         {
-            panel.Height = expanded ? Math.Min(320, Math.Max(178, workspace.Height / 2)) : 30;
+            if (expanded)
+                panel.Height = Math.Min(expandedHeight, Math.Max(HeaderHeight, workspace.Height - editorDivider.MinExtra - editorDivider.Height));
         };
         workspace.SizeChanged += delegate { resize(); };
+        editorDivider.SplitterMoved += delegate { expandedHeight = panel.Height; };
+        body.Resize += delegate
+        {
+            int limit = body.ClientSize.Height - body.Padding.Vertical - promptDivider.Height - promptDivider.MinExtra;
+            if (limit >= promptDivider.MinSize && promptArea.Height > limit) promptArea.Height = limit;
+        };
         toggle.Click += delegate
         {
             expanded = !expanded;
             body.Visible = expanded;
+            editorDivider.Visible = expanded;
             toggle.Text = expanded ? "AI Assistant  ▾" : "AI Assistant  ▸";
-            resize();
-            if (expanded) prompt.Focus();
+            if (expanded) { resize(); prompt.Focus(); }
+            else panel.Height = HeaderHeight;
         };
 
         var tips = new ToolTip();
-        tips.SetToolTip(key, "Leave blank to use the OPENAI_API_KEY environment variable. Entered keys are never saved.");
+        tips.SetToolTip(toggle, "Expand or collapse the AI Assistant.");
+        tips.SetToolTip(editorDivider, "Drag to change the height of the AI Assistant.");
+        tips.SetToolTip(promptDivider, "Drag to give the prompt or response more space.");
         tips.SetToolTip(prompt, "Type a prompt to send to OpenAI. Press Ctrl+Enter to send.");
         tips.SetToolTip(includeSelection, "Send the text currently selected in the active note with this prompt.");
         var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
@@ -100,12 +146,11 @@ partial class ImageNotepad
         {
             if (pending != null) return;
             string request = prompt.Text.Trim();
-            string modelName = model.Text.Trim();
-            string apiKey = key.Text.Trim();
+            string modelName = assistantModel;
+            string apiKey = assistantSessionKey;
             if (apiKey.Length == 0) apiKey = (Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "").Trim();
             if (request.Length == 0) { status.Text = "Enter a prompt."; prompt.Focus(); return; }
-            if (modelName.Length == 0) { status.Text = "Enter a model name."; model.Focus(); return; }
-            if (apiKey.Length == 0) { status.Text = "Enter an API key or set OPENAI_API_KEY."; key.Focus(); return; }
+            if (apiKey.Length == 0) { status.Text = "Set the API key in Settings > AI Assistant."; return; }
 
             string selectedText = includeSelection.Checked && Cur != null ? Cur.Rtb.SelectedText : "";
             if (includeSelection.Checked && selectedText.Length == 0)
