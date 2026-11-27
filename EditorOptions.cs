@@ -13,7 +13,7 @@ using System.Xml;
 
 partial class ImageNotepad
 {
-    Panel lineGutter;
+    Panel lineGutter, rightGutter;
     ToolStripMenuItem lineNumbersItem;
     Padding editorMargins;
     int autosaveMinutes;
@@ -33,8 +33,14 @@ partial class ImageNotepad
         Panel area = new EditorFrame { Dock = DockStyle.Fill };
         lineGutter = new Panel { Dock = DockStyle.Left, Width = 52, BackColor = SystemColors.Control, Visible = false };
         lineGutter.Paint += DrawLineNumbers;
+        rightGutter = new Panel
+        {
+            Dock = DockStyle.Right, Width = lineGutter.Width, BackColor = lineGutter.BackColor, Visible = false
+        };
+        lineGutter.VisibleChanged += delegate { rightGutter.Visible = lineGutter.Visible; };
         area.Controls.Add(content);
         area.Controls.Add(lineGutter);
+        area.Controls.Add(rightGutter);
         return area;
     }
 
