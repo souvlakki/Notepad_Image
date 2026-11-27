@@ -23,11 +23,20 @@ partial class ImageNotepad
             "Array Date Error JSON Map Math Object Omit Partial Pick Promise Readonly Record Set console document fetch window" } },
         { "Java", new[] { ".java", "abstract assert boolean break byte case catch char class const continue default do double else enum extends false final finally float for if implements import instanceof int interface long module native new null package private protected public record return sealed short static super switch synchronized this throw throws transient true try var void volatile while yield",
             "ArrayList Arrays Boolean Collections Double Exception HashMap HashSet Integer List Map Math Object Optional Set String StringBuilder System println" } },
-        { "C#", new[] { ".cs", "abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit false finally fixed float for foreach if implicit in int interface internal is lock long namespace new null object operator out override params partial private protected public readonly ref return sealed short static string struct switch this throw true try typeof uint ulong unchecked unsafe using var virtual void while yield",
-            "Array Console DateTime Dictionary Enumerable Exception Guid IEnumerable List Math Object String StringBuilder Task WriteLine" } }
+        { "C++", new[] { ".cpp .cc .cxx .hpp .hh .hxx .h .ipp .tpp .ixx .cppm", "alignas alignof asm auto bool break case catch char class concept const consteval constexpr constinit continue co_await co_return co_yield decltype default delete do double else enum explicit export extern false float for friend if import inline int long module mutable namespace new noexcept nullptr operator override private protected public requires return short signed sizeof static static_assert struct switch template this throw true try typedef typename union unsigned using virtual void volatile while",
+            "array begin cerr cin cout deque endl end exception filesystem find forward getline iostream iterator list make_shared make_unique map move optional pair printf queue ranges set shared_ptr size_t sort span stack std string string_view tuple unique_ptr unordered_map unordered_set variant vector" } },
+        { "HTML", new[] { ".html .htm .xhtml", "a abbr address article aside audio b blockquote body br button canvas caption code col colgroup data datalist dd details dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hr html i iframe img input label legend li link main mark menu meta meter nav ol optgroup option output p picture pre progress script section select small source span strong style summary table tbody td template textarea tfoot th thead time title tr track ul video",
+            "action alt aria-label aria-labelledby aria-hidden async autocomplete charset class content data- defer disabled for height hidden href id lang loading method name placeholder rel required role src srcset tabindex target type value width" } },
+        { "PHP", new[] { ".php .phtml .php3 .php4 .php5 .php7 .phps", "abstract and array as break callable case catch class clone const continue declare default die do echo else elseif empty endfor endforeach endif endswitch endwhile enum eval exit extends final finally fn for foreach function global if implements include include_once instanceof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield",
+            "_COOKIE _ENV _FILES _GET _POST _REQUEST _SERVER _SESSION array_filter array_keys array_map array_merge array_reduce array_values count date explode file_get_contents file_put_contents filter_var htmlspecialchars implode json_decode json_encode mysqli_connect preg_match printf sprintf str_contains str_replace strlen strpos substr trim var_dump" } },
+        { "CSS", new[] { ".css", "align-content align-items animation aspect-ratio background background-color background-image border border-color border-radius border-width box-shadow box-sizing color column-count content cursor display fill filter flex flex-direction flex-grow flex-wrap font font-family font-size font-weight gap grid grid-area grid-template-columns grid-template-rows height justify-content left letter-spacing line-height margin margin-bottom margin-left margin-right margin-top max-height max-width min-height min-width object-fit opacity order outline overflow padding padding-bottom padding-left padding-right padding-top position right text-align text-decoration text-transform top transform transition user-select visibility white-space width z-index",
+            "absolute auto block bold border-box calc center clamp currentColor fixed flex grid inherit initial inline inline-block minmax none relative repeat rgba solid sticky transparent unset var" } },
+        { "SQL", new[] { ".sql", "ADD ALL ALTER AND AS ASC BETWEEN BY CASE CHECK COLUMN CREATE CROSS DATABASE DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FETCH FOREIGN FROM FULL GRANT GROUP HAVING IN INDEX INNER INSERT INTERSECT INTO IS JOIN LEFT LIKE LIMIT NOT NULL OFFSET ON OR ORDER OUTER OVER PARTITION PRIMARY REFERENCES RIGHT ROLLBACK SELECT SET TABLE THEN TRANSACTION TRUNCATE UNION UNIQUE UPDATE USING VALUES VIEW WHEN WHERE WITH",
+            "ABS AVG CAST COALESCE CONCAT COUNT CURRENT_DATE CURRENT_TIMESTAMP DENSE_RANK LENGTH LOWER MAX MIN NULLIF RANK ROUND ROW_NUMBER SUBSTRING SUM TRIM UPPER VARCHAR INTEGER DECIMAL" } }
     };
 
     static readonly Regex Identifier = new Regex(@"[\p{L}_][\p{L}\p{M}\d_]*");
+    static readonly Regex HyphenatedIdentifier = new Regex(@"[-\p{L}_][-\p{L}\p{M}\d_]*");
     static readonly Regex ProseWord = new Regex(@"\p{L}[\p{L}\p{M}]*(?:['’][\p{L}\p{M}]+)*");
     readonly Dictionary<string, Color> languageColors = new Dictionary<string, Color>();
     bool completionEnabled, proseSpelling = true, codeSpelling = true;
@@ -47,6 +56,23 @@ partial class ImageNotepad
         foreach (var language in CodeLanguages)
             if (language.Value[0].Split(' ').Contains(extension, StringComparer.OrdinalIgnoreCase)) return language.Key;
         return "";
+    }
+
+    static bool IsSourcePath(string path)
+    {
+        return DetectLanguage(path).Length > 0 ||
+            string.Equals(Path.GetExtension(path), ".cs", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static Regex CodeToken(string language)
+    {
+        return language == "CSS" || language == "HTML" ? HyphenatedIdentifier : Identifier;
+    }
+
+    static StringComparer CodeComparer(string language)
+    {
+        return language == "HTML" || language == "CSS" || language == "SQL" || language == "PHP"
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     }
 
     Color GetLanguageColor(string language)
@@ -184,6 +210,7 @@ partial class ImageNotepad
             while (caret > 0 && (text[caret - 1] == ' ' || text[caret - 1] == '\t')) caret--;
         int start = caret;
         while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || "_'’".IndexOf(text[start - 1]) >= 0 ||
+            (pattern == HyphenatedIdentifier && text[start - 1] == '-') ||
             CharUnicodeInfo.GetUnicodeCategory(text[start - 1]) == UnicodeCategory.NonSpacingMark))
             start--;
         Match match = pattern.Match(text, start);
@@ -193,18 +220,21 @@ partial class ImageNotepad
     static string[] Complete(string language, string prefix, string text)
     {
         string[] data = CodeLanguages[language];
-        var local = Identifier.Matches(text).Cast<Match>()
+        StringComparer comparer = CodeComparer(language);
+        StringComparison comparison = comparer == StringComparer.OrdinalIgnoreCase
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var local = CodeToken(language).Matches(text).Cast<Match>()
             .Select(match => match.Value).Where(value => value.Length > prefix.Length);
         return data[1].Split(' ').Concat(data[2].Split(' ')).Concat(local)
-            .Where(value => value.StartsWith(prefix, StringComparison.Ordinal) && value != prefix)
-            .Distinct(StringComparer.Ordinal).Take(16).ToArray();
+            .Where(value => value.StartsWith(prefix, comparison) && !comparer.Equals(value, prefix))
+            .Distinct(comparer).Take(16).ToArray();
     }
 
     void ShowCompletion()
     {
         RichTextBox box = Cur.Rtb;
         int caret = box.SelectionStart;
-        Match word = WordAt(box.Text, caret, Identifier, false);
+        Match word = WordAt(box.Text, caret, CodeToken(Cur.Language), false);
         int start = word == null ? caret : word.Index;
         int length = word == null ? box.SelectionLength : word.Length;
         string prefix = box.Text.Substring(start, caret - start);
@@ -239,12 +269,14 @@ partial class ImageNotepad
     static string[] CorrectCode(string language, string word, string source)
     {
         string[] words = CodeLanguages[language][1].Split(' ');
-        if (word.Length < 3 || words.Contains(word) || CodeLanguages[language][2].Split(' ').Contains(word))
+        StringComparer comparer = CodeComparer(language);
+        if (word.Length < 3 || words.Contains(word, comparer) || CodeLanguages[language][2].Split(' ').Contains(word, comparer))
             return new string[0];
         // Repeated identifiers are likely intentional project names.
         if (Regex.Matches(source, @"(?<![\w])" + Regex.Escape(word) + @"(?![\w])").Count > 1)
             return new string[0];
-        return words.Where(keyword => OneEditApart(word, keyword)).ToArray();
+        return words.Where(keyword => comparer == StringComparer.OrdinalIgnoreCase
+            ? OneEditApart(word.ToUpperInvariant(), keyword.ToUpperInvariant()) : OneEditApart(word, keyword)).ToArray();
     }
 
     void CheckSpelling()
@@ -253,7 +285,7 @@ partial class ImageNotepad
         RichTextBox box = Cur.Rtb;
         bool code = Cur.Language.Length > 0;
         if (code ? !codeSpelling : !proseSpelling) return;
-        Match word = WordAt(box.Text, box.SelectionStart, code ? Identifier : ProseWord, true);
+        Match word = WordAt(box.Text, box.SelectionStart, code ? CodeToken(Cur.Language) : ProseWord, true);
         if (word == null || word.Length > 70) return;
         string[] suggestions = code ? CorrectCode(Cur.Language, word.Value, box.Text) : SuggestSpelling(word.Value);
         if (suggestions.Length == 0) return;

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Linq;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -844,7 +845,9 @@ partial class ImageNotepad : Form
     void OpenDialog()
     {
         OpenFileDialog d = new OpenFileDialog();
-        d.Filter = "Notes and source files|*.rtf;*.txt;*.inote;*.py;*.pyw;*.js;*.jsx;*.mjs;*.cjs;*.ts;*.tsx;*.mts;*.cts;*.java;*.cs|All files (*.*)|*.*";
+        d.Filter = "Notes and source files|*.rtf;*.txt;*.inote;*.cs;" +
+            string.Join(";", CodeLanguages.Values.SelectMany(language => language[0].Split(' ')).Select(ext => "*" + ext)) +
+            "|All files (*.*)|*.*";
         d.Multiselect = true;
         if (d.ShowDialog() == DialogResult.OK)
             foreach (string f in d.FileNames) OpenPath(f);
@@ -899,7 +902,7 @@ partial class ImageNotepad : Form
 
     bool Save(Doc d)
     {
-        if (d.FilePath != null && (d.FilePath.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase) || DetectLanguage(d.FilePath).Length > 0))
+        if (d.FilePath != null && (d.FilePath.EndsWith(".rtf", StringComparison.OrdinalIgnoreCase) || IsSourcePath(d.FilePath)))
             return SaveTo(d, d.FilePath);
         return SaveAs(d);
     }
@@ -936,7 +939,7 @@ partial class ImageNotepad : Form
     {
         try
         {
-            if (DetectLanguage(p).Length > 0)
+            if (IsSourcePath(p))
                 File.WriteAllText(p, d.Rtb.Text);
             else if (p.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
             {
