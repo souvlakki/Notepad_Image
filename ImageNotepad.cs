@@ -117,7 +117,7 @@ class TabStrip : Control
     }
 
     // ----- shapes -----
-    static GraphicsPath RoundRect(Rectangle r, int rad)
+    internal static GraphicsPath RoundRect(Rectangle r, int rad)
     {
         int d = rad * 2;
         GraphicsPath p = new GraphicsPath();

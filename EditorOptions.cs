@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.Globalization;
 using System.IO;
@@ -48,15 +49,15 @@ partial class ImageNotepad
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            if (ClientSize.Width < 6 || ClientSize.Height < 6) return;
+            if (ClientSize.Width < 3 || ClientSize.Height < 3) return;
 
-            Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.LightBlue;
+            Rectangle bounds = new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+            int radius = Math.Min(5, Math.Min(bounds.Width, bounds.Height) / 2);
+            Color edge = SystemInformation.HighContrast ? SystemColors.WindowText : Color.FromArgb(112, 112, 112);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (Pen pen = new Pen(edge))
-            {
-                for (int inset = 0; inset < Padding.Left; inset++)
-                    e.Graphics.DrawRectangle(pen, inset, inset,
-                        ClientSize.Width - 1 - 2 * inset, ClientSize.Height - 1 - 2 * inset);
-            }
+            using (GraphicsPath outline = TabStrip.RoundRect(bounds, radius))
+                e.Graphics.DrawPath(pen, outline);
         }
     }
 
